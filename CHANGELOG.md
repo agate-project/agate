@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.3 · 2026-11-19
+- Apache 2.0 license (`LICENSE`).
+- README with the Agate icon (`.github/agate.svg`), badges, quick start and how the pieces fit.
+- No behavior changes: nothing to migrate.
+
 ## 0.4.2 · 2026-11-19
 - Memory as commands: `agate.py memory add|update|remove|list|check` writes each entry with its frontmatter and keeps
   its line in `memory/INDEX.md` in sync; `check --fix` adds missing index lines and drops broken ones.

@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-0.4.2-2c5d88">
+  <img alt="version" src="https://img.shields.io/badge/version-0.4.3-2c5d88">
   <img alt="license" src="https://img.shields.io/badge/license-Apache--2.0-a8492a">
   <img alt="template" src="https://img.shields.io/badge/GitHub-template-4c6680">
   <img alt="always-loaded context" src="https://img.shields.io/badge/always--loaded-%E2%89%881.35K%20tokens-2f6f4e">
