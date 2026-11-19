@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.5 · 2026-11-19
+- Remote previews are a plain Tailscale link (`remote-preview` 0.2.0 in the hub): no accounts, allowlists or admin
+  rights. Guides and `agate.py serve` say so; `preview_identity` is no longer used.
+- Update the skill in existing projects: `python3 .agate/agate.py update remote-preview --yes`.
+
 ## 0.4.4 · 2026-11-19
 - Template slots in `AGENTS.md`: the base keeps its block as a template (`.agate/core/agents-block.md`); an extension
   gives only values (`"slots"` in its manifest) and `sync` rebuilds the same line, e.g. `When facts matter (e.g.

@@ -4,7 +4,7 @@ A static server for artifacts/, documents/ and the canvas engine, bound to 127.0
 for comments (stored by comments.py next to each artifact). Nothing else in the project is served: never .env,
 .git, memory/ or the rest of .agate/.
 
-To open it from another device, use a private channel (the remote-preview skill with its allowlist, or the Orca
+To open it from another device, use a private channel (the remote-preview skill's Tailscale link, or the Orca
 browser). This server never binds to other interfaces.
 """
 from __future__ import annotations

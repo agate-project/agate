@@ -10,8 +10,8 @@ committed: `artifacts/…/x.canvas/comments.json`, `artifacts/…/x.comments.jso
    canvas to drop a pin.
 3. Plain HTML artifacts: add `<script src="../../.agate/core/canvas/comments.js" defer></script>` (adjust the
    depth) before `</body>`; it adds a floating «Comment» button.
-4. Remote machine: never expose the port. Open it through a private channel: the Orca browser, or the
-   `remote-preview` skill (allowlist) pointing at the serve port.
+4. Remote machine: never expose the port publicly. Open it in the Orca browser, or share it on the tailnet with
+   `remote-preview`: `preview.py serve --port <serve port> --path artifacts/<…>`.
 
 ## Read and answer them
 - `agate.py start` mentions new comments in one line. Ask the person whether to address them now; don't start on

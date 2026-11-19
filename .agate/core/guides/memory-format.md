@@ -25,7 +25,7 @@ python3 .agate/agate.py memory check [--fix]
 Flat `key: value` YAML, written with `agate.py lang set` or by you:
 - `memory/local/preferences.yml` (or `memory/local/people/<name>.yml`): `name`, `language`, `style` (one line, e.g.
   `prefers being asked before assumptions`), `notes` (path to a longer .md, read only when needed),
-  `preview_identity`, `consent_<thing>: YYYY-MM-DD`.
+  `consent_<thing>: YYYY-MM-DD`.
 - `memory/shared/project.yml`: `default_language` and other short project defaults.
 - Long text goes in a .md referenced by `notes:`. JSON is only for tool state (`state.json`, `chats.json`…).
 
