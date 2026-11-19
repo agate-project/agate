@@ -7,7 +7,8 @@ hub and are installed on demand, like skills and hub apps.
 ```
 python3 .agate/agate.py add ext:<name>           # e.g. ext:product; downloads only that folder of the hub
 ```
-It adds its files and its own `<!-- agate-<name>:begin/end -->` block to `AGENTS.md`.
+It adds its files and its own `<!-- agate-<name>:begin/end -->` block to `AGENTS.md`, and may fill a slot of the base
+block (e.g. examples in the research line); `sync` rebuilds that line, so never edit it by hand.
 
 ## Update the base and every package
 ```

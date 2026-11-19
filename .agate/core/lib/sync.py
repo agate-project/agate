@@ -167,6 +167,76 @@ def replace_block(project_text: str, upstream_text: str, marker: str = "agate", 
     return project_text[:start] + block + project_text[start + len(current):]
 
 
+AGENTS_TEMPLATE = Path(".agate/core/agents-block.md")
+SLOT_RE = re.compile(r'\{\{(\w+)(?::\s*"([^"]*)")?\}\}')
+SLOT_CAP = 8
+
+
+def slot_values(manifests: list[dict]) -> dict[str, list[str]]:
+    """Values each expansion gives each slot, merged (never replaced) in expansion-name order, deduplicated."""
+    merged: dict[str, list[str]] = {}
+    for manifest in sorted(manifests, key=lambda m: m.get("name", "")):
+        for slot, values in (manifest.get("slots") or {}).items():
+            values = [values] if isinstance(values, str) else list(values or [])
+            bucket = merged.setdefault(slot, [])
+            for v in values:
+                v = str(v).strip().strip(",;:")
+                if v and v.lower() not in (x.lower() for x in bucket):
+                    bucket.append(v)
+    return merged
+
+
+def render_template(template: str, values: dict[str, list[str]]) -> tuple[str, list[str]]:
+    """Fill the slots; the base owns the wording (e.g. «(e.g. %s)»), expansions only give values."""
+    warnings, known = [], set()
+
+    def fill(m: re.Match) -> str:
+        name, fmt = m.group(1), m.group(2) or " (e.g. %s)"
+        known.add(name)
+        vals = values.get(name, [])
+        if len(vals) > SLOT_CAP:
+            warnings.append(f"slot '{name}' has {len(vals)} values; kept the first {SLOT_CAP}.")
+            vals = vals[:SLOT_CAP]
+        return fmt % ", ".join(vals) if vals else ""
+
+    text = SLOT_RE.sub(fill, template)
+    for name in sorted(set(values) - known):
+        warnings.append(f"slot '{name}' does not exist in the base template: ignored.")
+    return text, warnings
+
+
+def apply_slots(project: Path, upstream: Path, packages: list[dict], report: dict, dry_run: bool) -> None:
+    """Rebuild the `agate` block of AGENTS.md from the base template and the installed expansions' slots."""
+    base_incoming = any(p["kind"] == "base" for p in packages)
+    tpl_path = (upstream if dry_run and base_incoming else project) / AGENTS_TEMPLATE
+    agents = project / "AGENTS.md"
+    if not tpl_path.is_file() or not agents.is_file():
+        return
+    manifests = {}
+    exp_dir = project / EXPANSIONS_DIR
+    if exp_dir.is_dir():
+        for path in exp_dir.glob("*.json"):
+            m = read_json(path)
+            manifests[m.get("name", path.stem)] = m
+    for pkg in packages:
+        if pkg["kind"] == "expansion":
+            manifests[pkg["name"]] = pkg["manifest"]
+    values = slot_values(list(manifests.values()))
+    if not values:  # no expansion fills a slot: the base's own block (already synced) is the generic render
+        return
+    rendered, warnings = render_template(tpl_path.read_text(encoding="utf-8"), values)
+    report["warnings"] += warnings
+    block = extract_block(rendered, "agate", "AGENTS.md")
+    current = agents.read_text(encoding="utf-8")
+    now = extract_block(current, "agate", "AGENTS.md")
+    if block is None or now is None or block == now:
+        return
+    if "AGENTS.md" not in report["blocks"]:
+        report["blocks"].append("AGENTS.md")
+    if not dry_run:
+        agents.write_text(current.replace(now, block, 1), encoding="utf-8")
+
+
 def find_packages(upstream: Path) -> list[dict]:
     """Manifests shipped by the source: the base and/or expansions."""
     packages = []
@@ -353,6 +423,7 @@ def sync(project: Path, upstream: Path, dry_run: bool = False, source: dict | No
             pkgs.record(project, name, "base" if kind == "base" else "extension",
                             source or {}, manifest.get("version"))
 
+    apply_slots(project, upstream, packages, report, dry_run)
     base_pkg = next((p for p in report["packages"] if p["kind"] == "base"), report["packages"][0])
     report["from_version"], report["to_version"] = base_pkg["from"], base_pkg["to"]
     return report

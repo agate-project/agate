@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.4 · 2026-11-19
+- Template slots in `AGENTS.md`: the base keeps its block as a template (`.agate/core/agents-block.md`); an extension
+  gives only values (`"slots"` in its manifest) and `sync` rebuilds the same line, e.g. `When facts matter (e.g.
+  market, users), check sources…`. Values from several extensions merge (deduplicated, max 8 per slot). Without
+  extensions that fill a slot, nothing changes. The agent only sees the final line.
+- `build.py` fails if the template and the shipped block diverge.
+- No migration needed.
+
 ## 0.4.3 · 2026-11-19
 - Apache 2.0 license (`LICENSE`).
 - README with the Agate icon (`.github/agate.svg`), badges, quick start and how the pieces fit.
