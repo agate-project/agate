@@ -12,8 +12,10 @@ The tool is `python3 .agate/agate.py env`. **Never open, print or quote `.env`.*
    - in a terminal: `python3 .agate/agate.py env set NAME` (hidden input; prints `saved: NAME (fp:xxxxxx)`);
    - or pasting it in `.env` with the editor;
    - or the `env-manager` app from the hub, if installed.
-   If they paste it in the chat anyway: save it with `env set` semantics, warn that the chat keeps it and the model
-   provider received it, and suggest rotating the key.
+   If they paste a key in the chat anyway: **don't use it, don't save it, don't repeat it**. Tell them clearly (and
+   firmly) that the key is now exposed (the chat history and the model provider have it), that they must **rotate it**
+   at the provider, and offer the safe way for the new one (env-manager or the terminal). In Claude Code the
+   `UserPromptSubmit` hook (`agate.py scan-prompt`) blocks such messages before they reach the model.
 
 ## Check without reading
 `python3 .agate/agate.py env check [NAME…]` reports, without values: missing, empty, placeholder, quotes or spaces

@@ -627,6 +627,93 @@ def probe_server(root: Path, name: str, timeout: float = 30.0) -> tuple[bool, st
                 pass
 
 
+def tools_list_size(root: Path, name: str, timeout: float = 30.0) -> dict:
+    """How much the connector's tool definitions weigh: MCP `tools/list` over stdio (local servers only).
+
+    Returns {"ok", "tools", "bytes"} or {"ok": False, "reason"}. Remote servers are skipped: their authorization lives
+    in the harness. Values from .env are passed to the server only as declared env vars, never printed.
+    """
+    server = load_servers(root).get(name)
+    if not server:
+        return {"ok": False, "reason": "not in servers.json"}
+    if server.get("type") == "remote":
+        return {"ok": False, "reason": "remote: measured by the harness (authorization lives there)"}
+    env = secrets(root, False)
+    child, missing = build_env(server, env)
+    if missing:
+        return {"ok": False, "reason": "missing values in .env: " + ", ".join(missing)}
+    declared = list(server.get("env", []))
+    cmd = [expand(server["command"], env, declared)] + [expand(x, env, declared) for x in server.get("args", [])]
+    exe = shutil.which(cmd[0], path=child.get("PATH")) or cmd[0]
+    try:
+        proc = subprocess.Popen([exe] + cmd[1:], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                stderr=subprocess.DEVNULL, env=child, cwd=str(root), text=True)
+    except OSError as exc:
+        return {"ok": False, "reason": f"could not start '{cmd[0]}' ({exc})"}
+
+    def send(msg):
+        proc.stdin.write(json.dumps(msg) + "\n")
+        proc.stdin.flush()
+
+    sel = selectors.DefaultSelector()
+    try:
+        sel.register(proc.stdout, selectors.EVENT_READ)
+        use_select = True
+    except (ValueError, OSError):
+        use_select = False  # Windows pipes: blocking read
+
+    def wait_for(msg_id, deadline):
+        while time.time() < deadline:
+            if use_select and not sel.select(timeout=max(0.0, deadline - time.time())):
+                return None
+            line = proc.stdout.readline()
+            if not line:
+                return None
+            try:
+                message = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(message, dict) and message.get("id") == msg_id:
+                return message
+        return None
+
+    deadline = time.time() + timeout
+    try:
+        send({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+              "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                         "clientInfo": {"name": "agate-tokens", "version": "1"}}})
+        if not (wait_for(1, deadline) or {}).get("result"):
+            return {"ok": False, "reason": "no answer to initialize"}
+        send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        tools, cursor, req = [], None, 2
+        for _ in range(20):  # pagination guard
+            params = {"cursor": cursor} if cursor else {}
+            send({"jsonrpc": "2.0", "id": req, "method": "tools/list", "params": params})
+            reply = wait_for(req, deadline)
+            result = (reply or {}).get("result")
+            if result is None:
+                return {"ok": False, "reason": "no answer to tools/list"}
+            tools += result.get("tools") or []
+            cursor = result.get("nextCursor")
+            req += 1
+            if not cursor:
+                break
+        return {"ok": True, "tools": len(tools), "bytes": len(json.dumps(tools, ensure_ascii=False).encode())}
+    except (OSError, ValueError) as exc:
+        return {"ok": False, "reason": str(exc)[:120]}
+    finally:
+        proc.kill()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.SubprocessError:
+            pass
+        for stream in (proc.stdin, proc.stdout):
+            try:
+                stream.close()
+            except (OSError, ValueError):
+                pass
+
+
 def cmd_doctor(root: Path, name: str, harness: str | None, timeout: float) -> int:
     server = get_server(root, name)
     ext, ext_state = project_extension(root)

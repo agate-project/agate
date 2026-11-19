@@ -32,3 +32,10 @@ python3 .agate/agate.py add pack:<name>           # documents, design, writing, 
 ## Keep the list lean
 Every installed skill's description is loaded by the harness in every message. Remove skills nobody uses
 (`python3 .agate/agate.py remove <name>`); `start` warns when the descriptions pass `tokens_skill_descriptions_warn`.
+
+## Safety
+- Skills from a source with `"releases": "tags"` (the Agate hub) come from its latest release tag, never the branch tip.
+  Pinned sources (`"ref"`, e.g. Anthropic) stay on that commit; move them only with `update <name> --ref <commit>`
+  (it shows the diff first).
+- A skill that brings scripts asks first, even from a trusted source: `add` prints one line ("… includes N scripts …").
+  Relay it to the person and rerun with `--yes` only after their ok. `update` lists `scripts changed:` before applying.

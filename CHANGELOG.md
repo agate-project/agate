@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.4.2 · 2026-11-19
+- Memory as commands: `agate.py memory add|update|remove|list|check` writes each entry with its frontmatter and keeps
+  its line in `memory/INDEX.md` in sync; `check --fix` adds missing index lines and drops broken ones.
+- `agate.py start` prints the memory index itself while it is short (`memory_index_inline_lines`, default 40), so
+  reading the index and running start is one step; it also warns about memory problems and suggests saving decisions
+  after several work commits without memory changes (`memory_nudge_commits`).
+- New `config.yml` keys: `memory_index_lines`, `memory_index_inline_lines`, `memory_stale_days`,
+  `memory_nudge_commits`.
+
+- `agate.py tokens --real`: what really entered the first turn of the last Claude Code sessions (usage only, no
+  conversation text), split into Agate's always-loaded part and the rest (harness prompt, tools). `--mcp`: weight of
+  each local connector's tool definitions. `memory/INDEX.md` has its own row; `start` warns above
+  `tokens_first_turn_warn` / `tokens_mcp_tools_warn` (cached, refreshed at most weekly).
+- `.ignore` / `.rgignore`: Agate's own files (.agate/, skill references, caches) stay out of ripgrep-based searches;
+  reading by path still works.
+- Supply chain: the base and the hub install and update only from their latest release tag (vX.Y.Z), never from the
+  branch tip; the lock records tag + commit. Pinned sources (Anthropic) move only with `update <name> --ref <commit>`.
+  Packages with scripts ask first even from trusted sources (`--yes`); `update` lists `scripts changed:`.
+- Fresh projects set themselves up: the first `start` creates the folders and turns on the git hooks, and tells the
+  agent once to fill the project description as the person talks — no questionnaire. Hub skill `quick-start`
+  (on demand, text-only) for a short guided start.
+- Keys pasted in the chat: `agate.py scan-prompt` (Claude Code `UserPromptSubmit` hook) blocks a message with a known
+  key format before it reaches the model and asks to rotate it; the guide says never use, store or repeat it.
+- Session-start hook: `agate.py start --hook` loads start automatically in Claude Code; a later manual `start` in
+  the same harness answers in one line instead of repeating it.
+- Live view: `agate.py serve` streams changes (Server-Sent Events) — canvases reload only the board that changed,
+  re-layout on `canvas.json` and refresh comments; plain artifacts reload keeping the scroll; shows who else is
+  viewing. AI cursor at no token cost: `agate.py serve notify --from-hook` (Claude Code `PostToolUse`) marks the
+  edited board; "Follow the AI" (key F).
+- Fix: the conversational style's frontmatter is valid YAML; a test checks every shipped frontmatter.
+
+### Migrating from 0.4.1
+- `agate.py update` adds `"releases": "tags"` to the `agate` source and a `base` entry to `.agate/library.json` if
+  missing. Publishing a version requires pushing a `vX.Y.Z` tag to agate and agate-hub.
+
 ## 0.4.1 · 2026-11-19
 - **`start` says more, only when there is something to say:** `Reply in`, then (if known) `Person` (name · working
   style · link to longer notes), `Last session` (latest noted chat or daily log, last 14 days), a line when this

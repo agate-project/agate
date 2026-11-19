@@ -1,0 +1,6 @@
+# Keeps Agate's own machinery out of the agent's searches (ripgrep honors .ignore and .rgignore).
+# Explicit reads by path still work: AGENTS.md points to .agate/core/guides/ by path.
+# To search them anyway: rg --no-ignore-dot <pattern>, or delete the line you need here.
+.agate/
+.agents/skills/*/references/
+memory/local/.cache/

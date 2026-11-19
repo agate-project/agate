@@ -1,6 +1,6 @@
 {
   "name": "agate",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "owned": [
     ".agate/agate.py",
     ".agate/core/",

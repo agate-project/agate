@@ -1,6 +1,11 @@
 {
   "version": 1,
   "about": "Project skill sources, in order of preference. Managed with agate.py. Add your own sources (from your team or company) with `agate.py sources --add`.",
+  "base": {
+    "repo": "https://github.com/agate-project/agate",
+    "releases": "tags",
+    "note": "The Agate base is installed and updated only from release tags (vX.Y.Z), never from the branch tip."
+  },
   "sources": [
     {
       "id": "agate",
@@ -10,7 +15,8 @@
       "packs": "packs.json",
       "trust": "trusted",
       "license": "own",
-      "note": "Agate hub: extra skills (skills/) and extensions (extensions/, installed with `sync.py add <name>`). Downloaded on demand."
+      "note": "Agate hub: extra skills (skills/) and extensions (extensions/, installed with `sync.py add <name>`). Downloaded on demand.",
+      "releases": "tags"
     },
     {
       "id": "anthropic",

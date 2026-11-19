@@ -33,3 +33,6 @@ python3 .agate/agate.py remove app:<name>
 ## Rules
 - Project-specific instructions go outside the blocks (the "This project" section) or in new files.
 - After an update, read the `CHANGELOG.md` entry and tell the person in one or two lines what changed.
+- The base, extensions and apps are installed and updated from release tags (`vX.Y.Z`); `check` shows tag → tag and
+  never offers the branch tip. A package with scripts (every app, extensions with code) needs `--yes` after the
+  person's ok; `update` lists `scripts changed:` first.

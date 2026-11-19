@@ -65,8 +65,8 @@ def git_commit(path: Path) -> str | None:
         return None
 
 
-def fetch(repo: str, sub: str, tmp: Path) -> tuple[Path, str | None]:
-    return pkgs.fetch(repo, sub, tmp)
+def fetch(repo: str, sub: str, tmp: Path, ref: str | None = None) -> tuple[Path, str | None]:
+    return pkgs.fetch(repo, sub, tmp, ref)
 
 
 def hub_repo(project: Path) -> str:
@@ -215,6 +215,15 @@ def merge_library(local: dict, upstream: dict) -> tuple[dict, list[str]]:
         if source.get("id") not in ids:
             merged.setdefault("sources", []).append(source)
             added.append(f"source {source.get('id')}")
+        elif source.get("releases"):
+            mine = next(s for s in merged["sources"] if s.get("id") == source.get("id"))
+            same_repo = pkgs._norm_repo(mine.get("repo", "")) == pkgs._norm_repo(source.get("repo", ""))
+            if "releases" not in mine and same_repo:
+                mine["releases"] = source["releases"]
+                added.append(f"releases for source {source.get('id')}")
+    if isinstance(upstream.get("base"), dict) and "base" not in merged:
+        merged["base"] = upstream["base"]
+        added.append("base releases policy")
     for key in ("packs", "requires"):
         for name, value in upstream.get(key, {}).items():
             if name not in merged.setdefault(key, {}):
@@ -361,6 +370,9 @@ def print_report(report: dict, dry_run: bool) -> None:
             for item in items:
                 print(f"    {item}")
     print(f"- Unchanged: {report['unchanged']}")
+    scripts = sorted({r for r in report["created"] + report["updated"] if pkgs.is_script_path(r)})
+    if scripts:
+        print("- scripts changed: " + ", ".join(scripts))
     for warning in report["warnings"]:
         print(f"! {warning}")
 
@@ -393,18 +405,25 @@ def check(project: Path, base_from: str | None = None) -> list[dict]:
                "available": None, "available_commit": None, "status": "unknown"}
         tmp = Path(tempfile.mkdtemp(prefix="agate-check-"))
         try:
-            folder, commit = fetch(repo, sub, tmp)
+            tag = None if base_from else pkgs.release_ref(project, repo)
+            folder, commit = fetch(repo, sub, tmp, tag)
             upstream = read_json(folder / rel)
             row["available"], row["available_commit"] = upstream.get("version"), commit
+            if tag:  # releases: compare tags, never the branch tip
+                row["installed"], row["available"] = entry.get("tag") or row["installed"], tag
             if not upstream:
                 row["status"] = "missing upstream"
+            elif tag:
+                have = (entry.get("tag") or manifest.get("version") or "0").lstrip("v")
+                row["status"] = ("update available" if version_tuple(tag.lstrip("v")) > version_tuple(have)
+                                 else "up to date")
             elif version_tuple(upstream.get("version", "0")) > version_tuple(row["installed"]):
                 row["status"] = "update available"
             elif commit and row["installed_commit"] and commit != row["installed_commit"]:
                 row["status"] = "new commits (same version)"
             else:
                 row["status"] = "up to date"
-        except (OSError, subprocess.CalledProcessError, json.JSONDecodeError) as exc:
+        except (OSError, subprocess.CalledProcessError, json.JSONDecodeError, RuntimeError) as exc:
             row["status"] = f"unreachable ({exc.__class__.__name__})"
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
@@ -425,12 +444,20 @@ def print_check(rows: list[dict]) -> None:
         print("To update: python3 .agate/agate.py update (shows what changes), then with --yes.")
 
 
-def run_sync(project: Path, source_arg: str, dry_run: bool) -> int:
+def run_sync(project: Path, source_arg: str, dry_run: bool, consent: bool = True, ref: str | None = None) -> int:
+    """Sync from a source. Repos that follow releases are installed from their latest tag (or `ref`).
+
+    `consent=False` (an `add` without --yes): if the package brings scripts, print one line to ask the person first.
+    """
     repo, sub = split_source(source_arg)
     tmp = Path(tempfile.mkdtemp(prefix="agate-sync-"))
     try:
         try:
-            upstream, commit = fetch(repo, sub, tmp)
+            tag = ref or pkgs.release_ref(project, repo)
+            upstream, commit = fetch(repo, sub, tmp, tag)
+        except RuntimeError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 2
         except subprocess.CalledProcessError as exc:
             print(f"Could not download {source_arg}: {(exc.stderr or '').strip()}", file=sys.stderr)
             return 2
@@ -440,8 +467,15 @@ def run_sync(project: Path, source_arg: str, dry_run: bool) -> int:
         if upstream.resolve() == project:
             print("Source and project are the same folder: nothing to do.")
             return 1
+        if not dry_run and not consent:
+            scripts = pkgs.script_files(upstream)
+            if scripts:
+                name = sub.rsplit("/", 1)[-1] if sub else Path(repo).name
+                print(pkgs.consent_line(name, f"{repo}{'@' + tag if tag else ''}", "own", scripts))
+                return 3
         repo_value = repo if is_url(repo) else str(Path(repo).expanduser().resolve())
-        report = sync(project, upstream, dry_run=dry_run, source={"repo": repo_value, "path": sub, "commit": commit})
+        report = sync(project, upstream, dry_run=dry_run,
+                      source={"repo": repo_value, "path": sub, "commit": commit, "tag": tag})
         print_report(report, dry_run)
         return 0
     finally:

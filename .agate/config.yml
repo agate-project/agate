@@ -12,6 +12,8 @@ tokens_corpus_index: 100000
 tokens_corpus_rag: 300000
 tokens_file_large: 20000
 tokens_skill_descriptions_warn: 1500
+tokens_first_turn_warn: 30000   # first-turn input (from `tokens --real`) above this → one line in start
+tokens_mcp_tools_warn: 8000     # MCP tool definitions (from `tokens --mcp`) above this → one line in start
 
 # Update checks at the start of a conversation (`git ls-remote` only; never applied without the person's ok).
 # The first conversation of each day always checks; otherwise the next check waits for the current step, and each
@@ -19,3 +21,9 @@ tokens_skill_descriptions_warn: 1500
 update_check_schedule: "1h, 2h, 1d"
 # Remind about a pending update at most once every N hours (`agate.py update --snooze 7d` silences it for a while).
 update_notice_hours: 24
+
+# Memory (`agate.py memory …` and `agate.py start`).
+memory_index_lines: 150          # warn when memory/INDEX.md grows past this
+memory_index_inline_lines: 40    # start prints the index itself up to this size (else points to the file)
+memory_stale_days: 120           # `memory check` lists entries not updated in this many days (informational)
+memory_nudge_commits: 8          # start suggests saving decisions after this many work commits without memory changes

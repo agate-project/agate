@@ -8,7 +8,7 @@ A working project in git: what is discussed, decided and produced is saved for t
 People here may not code: you run the commands and explain what you did in plain words.
 
 ### At the start of a conversation
-Read `memory/INDEX.md`, run `python3 .agate/agate.py start` and follow its output.
+Run `python3 .agate/agate.py start` and follow its output (it includes the memory index).
 
 ### How to talk
 - Write like a thoughtful colleague: plain prose, formatting only when it helps, length matched to the question.

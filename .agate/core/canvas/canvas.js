@@ -562,7 +562,44 @@
       S.x = vp.clientWidth / 2 - x * S.z; S.y = vp.clientHeight / 2 - y * S.z; apply();
     },
     onView: function (fn) { API.views.push(fn); },
-    setClick: function (fn) { API.click = fn || null; vp.classList.toggle("cv-commenting", !!fn); }
+    setClick: function (fn) { API.click = fn || null; vp.classList.toggle("cv-commenting", !!fn); },
+    boardForPath: function (rel) {
+      var clean = String(rel || "").replace(/^\.\//, "");
+      for (var i = 0; i < items.length; i++) {
+        var it = items[i];
+        if (it.kind === "board" && it.d.src && String(it.d.src).replace(/^\.\//, "").split(/[?#]/)[0] === clean) return it.id;
+      }
+      return null;
+    },
+    reloadBoard: function (id) {
+      var it = byId[id];
+      if (!it || !it.frame) return false;
+      if (it.frame.src) {
+        var base = it.frame.dataset.src;
+        it.frame.src = base + (base.indexOf("?") < 0 ? "?" : "&") + "v=" + Date.now();
+      }
+      return true;
+    },
+    relayout: function (json) {
+      if (!json) return;
+      deactivate();
+      selected = null;
+      data = json;
+      world.innerHTML = "";
+      svg = null; items = []; byId = {}; sectionEls = [];
+      layout(); render(); apply(); lazyLoad(); drawMini();
+      API.views.forEach(function (fn) { try { fn(); } catch (err) { /* overlay */ } });
+    },
+    mark: function (id, text) {
+      var it = byId[id];
+      if (!it || !it.node) return;
+      var n = it.node, b = n.querySelector(".cv-ai-badge");
+      if (!b) { b = el("div", "cv-ai-badge", n); }
+      b.textContent = text;
+      n.classList.remove("cv-ai-edit"); void n.offsetWidth; n.classList.add("cv-ai-edit");
+      clearTimeout(it.aiTimer);
+      it.aiTimer = setTimeout(function () { n.classList.remove("cv-ai-edit"); if (b.parentNode) b.parentNode.removeChild(b); }, 4000);
+    }
   };
   function loadComments() {
     window.AgateCanvas = API;

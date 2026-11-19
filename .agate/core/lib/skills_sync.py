@@ -197,6 +197,13 @@ class Project:
         commit = git("rev-parse", "--short=7", "HEAD", cwd=dest)
         return dest / src.get("path", ""), commit
 
+    def resolve_repo(self, src: dict) -> str:
+        repo = src["repo"]
+        local = Path(repo).expanduser()
+        if not local.is_absolute():
+            local = self.root / local
+        return str(local) if local.is_dir() else repo
+
     def catalog(self, src: dict, ref: str | None = None, refresh: bool = False) -> tuple[dict[str, dict], str]:
         base, commit = self.checkout(src, ref, refresh)
         items: dict[str, dict] = {}
@@ -246,7 +253,7 @@ def cmd_search(p: Project, a) -> int:
         if a.source and src["id"] != a.source:
             continue
         try:
-            items, commit = p.catalog(src, src.get("ref"), a.refresh)
+            items, commit = p.catalog(src, effective_ref(p, src, None)[0], a.refresh)
         except UserError as e:
             print(f"  (could not read source '{src['id']}': {e})")
             continue
@@ -269,6 +276,25 @@ def cmd_search(p: Project, a) -> int:
     return EXIT_OK
 
 
+def effective_ref(p: Project, src: dict, ref: str | None) -> tuple[str | None, str | None]:
+    """(ref to check out, release tag or None). Explicit ref > latest release tag (releases: tags) > pinned ref.
+
+    Never the branch tip for sources that follow releases or are pinned.
+    """
+    if ref:
+        return ref, None
+    if src.get("releases") == "tags":
+        try:
+            found = p._packages.latest_tag(p.resolve_repo(src))
+        except Exception as exc:  # noqa: BLE001
+            raise UserError(f"Could not read release tags of '{src['id']}' ({exc.__class__.__name__}).") from exc
+        if not found:
+            raise UserError(f"Source '{src['id']}' has no release tag (vX.Y.Z) yet; Agate never installs from the "
+                            f"branch tip.")
+        return found[0], found[0]
+    return src.get("ref"), None
+
+
 def resolve_targets(p: Project, target: str) -> list[tuple[dict, str]]:
     if target.startswith("pack:"):
         name = target[5:]
@@ -284,7 +310,7 @@ def resolve_targets(p: Project, target: str) -> list[tuple[dict, str]]:
         return [(p.source(sid), name)]
     for src in p.sources():
         try:
-            items, _ = p.catalog(src, src.get("ref"))
+            items, _ = p.catalog(src, effective_ref(p, src, None)[0])
         except UserError:
             continue
         if target in items:
@@ -313,7 +339,8 @@ def install_one(p: Project, src: dict, name: str, a, ref: str | None = None) -> 
         if not a.force:
             raise UserError(f".agents/skills/{name} already exists and does not come from '{src['id']}'. "
                         f"Not overwriting it: use --force only if you want to replace it.")
-    items, commit = p.catalog(src, ref if ref is not None else src.get("ref"))
+    ref, tag = effective_ref(p, src, ref)
+    items, commit = p.catalog(src, ref)
     if name not in items:
         raise UserError(f"Source '{src['id']}' has no skill '{name}'.")
     origin_dir = items[name]["dir"]
@@ -324,6 +351,11 @@ def install_one(p: Project, src: dict, name: str, a, ref: str | None = None) -> 
         print(f"Source '{src['id']}' is not trusted. Review what '{name}' contains before installing it:\n")
         print(describe_for_review(origin_dir))
         print(f"\nIf it looks fine, run again with --yes: agate.py add {key} --yes")
+        return EXIT_NEEDS_YES
+    scripts = p._packages.script_files(origin_dir)
+    if trusted and scripts and not a.yes:
+        print(p._packages.consent_line(key, f"{src['repo']}@{tag or commit}",
+                                       src.get("license") or detect_license(origin_dir), scripts))
         return EXIT_NEEDS_YES
     if dest.exists():
         shutil.rmtree(dest)
@@ -341,6 +373,8 @@ def install_one(p: Project, src: dict, name: str, a, ref: str | None = None) -> 
         "sha256": folder_hash(dest),
         "installed": today(),
     }
+    if tag:
+        p.lock["skills"][name]["tag"] = tag
     p.save_lock()
     print(f"Installed '{name}' ({src['id']}@{commit}, {license_}) in .agents/skills/{name}.")
     print(f"  Read it now and follow it: .agents/skills/{name}/SKILL.md")
@@ -396,7 +430,8 @@ def cmd_update(p: Project, a) -> int:
         if not entry:
             raise UserError(f"'{name}' is not in .agate/lock.json.")
         src = p.source(entry["source"])
-        items, commit = p.catalog(src, a.ref, refresh=True)
+        ref, tag = effective_ref(p, src, a.ref)
+        items, commit = p.catalog(src, ref, refresh=True)
         if name not in items:
             print(f"'{name}': the source no longer has it. Leaving it as is.")
             continue
@@ -410,10 +445,13 @@ def cmd_update(p: Project, a) -> int:
         added = sorted(set(new_files) - set(local_files))
         removed = sorted(set(local_files) - set(new_files))
         changed = sorted(f for f in set(new_files) & set(local_files) if new_files[f] != local_files[f])
-        print(f"'{name}': {entry['source']}@{entry['ref']} → {commit}")
+        print(f"'{name}': {entry['source']}@{entry.get('tag') or entry['ref']} → {tag or commit}")
         for label, group in (("added", added), ("removed", removed), ("changed", changed)):
             if group:
                 print(f"  {label}: {', '.join(group)}")
+        scripts = p._packages.changed_scripts(dest, items[name]["dir"]) if dest.is_dir() else []
+        if scripts:
+            print(f"  scripts changed: {', '.join(scripts)}")
         if edited:
             print("  Careful: the project copy has manual edits; updating would overwrite them.")
         if not a.yes or (edited and not a.force):
@@ -424,6 +462,8 @@ def cmd_update(p: Project, a) -> int:
         shutil.rmtree(dest, ignore_errors=True)
         shutil.copytree(items[name]["dir"], dest, ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc"))
         entry.update(ref=commit, sha256=folder_hash(dest), installed=today())
+        if tag:
+            entry["tag"] = tag
         p.save_lock()
         print(f"  Updated. Suggested commit: skills: update {name} ({entry['source']}@{commit})")
     return code

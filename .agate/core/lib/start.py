@@ -323,10 +323,19 @@ def collect(root: Path, person: str | None = None) -> dict:
         except Exception:  # noqa: BLE001
             pass
     attention.sort(key=lambda item: item[0])
-    return {"language": lang, "head": head, "attention": [text for _, text in attention]}
+    try:
+        import memory  # noqa: PLC0415
+        index = memory.index_block(root)
+    except Exception:  # noqa: BLE001
+        index = []
+    return {"language": lang, "head": head, "attention": [text for _, text in attention], "index": index}
 
 
 def render(data: dict, all_lines: bool = False) -> list[str]:
+    return _render_capped(data, all_lines) + list(data.get("index") or [])
+
+
+def _render_capped(data: dict, all_lines: bool = False) -> list[str]:
     lines = list(data["head"])
     bullets = list(data["attention"])
     if not bullets:
@@ -394,7 +403,7 @@ def cmd_start(a) -> int:
         lines = ["(Agate start, loaded by the session hook: don't run it again.)"] + lines
     if a.json:
         print(json.dumps({"language": data["language"], "head": data["head"], "attention": data["attention"],
-                          "lines": lines}, ensure_ascii=False))
+                          "index": data.get("index") or [], "lines": lines}, ensure_ascii=False))
     else:
         print("\n".join(lines))
     return 0

@@ -27,6 +27,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 CHARS_PER_TOKEN = 3.5
 PROVIDERS = ("claude", "gemini", "openai")
 CALIBRATION = Path("memory/local/token-calibration.json")
+REAL_CACHE = Path("memory/local/token-real.json")
+MCP_CACHE = Path("memory/local/mcp-tools.json")
+REAL_REFRESH = _dt.timedelta(days=7)
 STATE = Path("memory/local/state.json")
 CHECK_EVERY = _dt.timedelta(days=7)
 CLAUDE_MODEL = "claude-opus-5-5"
@@ -42,6 +45,8 @@ DEFAULTS = {
     "tokens_corpus_rag": 300000,
     "tokens_file_large": 20000,
     "tokens_skill_descriptions_warn": 1500,
+    "tokens_first_turn_warn": 30000,
+    "tokens_mcp_tools_warn": 8000,
 }
 ERRORS = {"skipped": []}
 
@@ -94,7 +99,7 @@ def skill_descriptions(root: Path) -> str:
     return "\n".join(fm for _, fm in skill_frontmatters(root))
 
 
-def collect(root: Path, paths: list[str] | None = None) -> dict[str, list[tuple[str, str]]]:
+def collect(root: Path, paths: list[str] | None = None, only_always: bool = False) -> dict[str, list[tuple[str, str]]]:
     """group → [(label, text)]."""
     if paths:
         group = []
@@ -114,6 +119,8 @@ def collect(root: Path, paths: list[str] | None = None) -> dict[str, list[tuple[
     desc = skill_descriptions(root)
     if desc:
         always.append(("skill descriptions", desc))
+    if only_always:
+        return {"always_loaded": always}
     shared = [(f.relative_to(root).as_posix(), t) for f in files_under(root, "memory/shared")
               if (t := read_text(f)) is not None]
     corpus = [(f.relative_to(root).as_posix(), t) for rel in ("documents", "artifacts")
@@ -261,6 +268,11 @@ def measure(root: Path, groups: dict, providers: list[str], exact: bool) -> dict
         raw = estimate("\n".join(fm for _, fm in skills))
         factor = calib.get("claude", {}).get("factor") or 1
         report["skill_descriptions"] = {"skills": len(skills), "tokens": int(round(raw * factor))}
+    index = root / "memory/INDEX.md"
+    if "always_loaded" in groups and index.is_file():
+        factor = calib.get("claude", {}).get("factor") or 1
+        report["memory_index"] = {"lines": len(index.read_text(encoding="utf-8").splitlines()),
+                                  "tokens": int(round(estimate(index.read_text(encoding="utf-8")) * factor))}
     report["files"].sort(key=lambda f: f["tokens"], reverse=True)
     report["files"] = [f for f in report["files"] if f["path"] != "skill descriptions"][:10]
     report["notes"] += ERRORS["skipped"]
@@ -347,6 +359,168 @@ def weekly_line(root: Path) -> list[str]:
     return ["Context budget: " + "; ".join(recs) + ". Details: `python3 .agate/agate.py tokens`."]
 
 
+# ---------------------------------------------------------------- what really enters the first turn
+
+def first_turn_tokens(path: Path) -> int | None:
+    """Input tokens of the first main-thread assistant turn of a Claude Code .jsonl (usage only, never content)."""
+    try:
+        with path.open(encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                if '"usage"' not in line:
+                    continue
+                try:
+                    d = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if d.get("type") != "assistant" or d.get("isSidechain"):
+                    continue
+                u = (d.get("message") or {}).get("usage") or {}
+                if not isinstance(u, dict) or "input_tokens" not in u:
+                    continue
+                return int(u.get("input_tokens") or 0) + int(u.get("cache_creation_input_tokens") or 0) + \
+                    int(u.get("cache_read_input_tokens") or 0)
+    except OSError:
+        return None
+    return None
+
+
+def session_files(root: Path) -> list[Path]:
+    """Claude Code transcripts of this repo (Orca's Claude sessions are the same files)."""
+    try:
+        import chats  # noqa: PLC0415
+        repo = chats.Repo(chats.find_root(root))
+        found = chats.Found()
+        chats.scan_claude(repo, found)
+    except Exception:  # noqa: BLE001 — formats of other tools may change; never break tokens
+        return []
+    paths = {Path(r["path"]) for c in found.chats for r in c["refs"]
+             if r.get("harness") == "claude-code" and r.get("path")}
+    return sorted((p for p in paths if p.is_file()), key=lambda p: p.stat().st_mtime, reverse=True)
+
+
+def median(values: list[int]) -> int:
+    v = sorted(values)
+    if not v:
+        return 0
+    mid = len(v) // 2
+    return v[mid] if len(v) % 2 else int(round((v[mid - 1] + v[mid]) / 2))
+
+
+def measure_real(root: Path, sessions: int = 5) -> dict:
+    """First-turn input of the last N sessions of this repo → cached in memory/local/token-real.json."""
+    values = []
+    for p in session_files(root):
+        n = first_turn_tokens(p)
+        if n:
+            values.append({"session": p.stem[:8], "date": _dt.datetime.fromtimestamp(p.stat().st_mtime)
+                           .isoformat(timespec="seconds"), "first_turn": n})
+        if len(values) >= sessions:
+            break
+    agate = measure(root, collect(root, only_always=True), ["claude"], exact=False)
+    always = agate["groups"]["always_loaded"]["claude"]["tokens"]
+    result = {"measured": _dt.datetime.now().isoformat(timespec="seconds"), "harness": "claude-code",
+              "sessions": values, "median": median([v["first_turn"] for v in values]),
+              "last": values[0]["first_turn"] if values else 0, "agate_always_loaded": always,
+              "memory_index": (agate.get("memory_index") or {}).get("tokens", 0)}
+    _write_json(root / REAL_CACHE, result)
+    return result
+
+
+def measure_mcp(root: Path, timeout: float = 30.0) -> dict:
+    """Tool-definition weight of each local connector (MCP tools/list) → cached in memory/local/mcp-tools.json."""
+    rows = {}
+    try:
+        import mcp  # noqa: PLC0415
+        names = list(mcp.load_servers(root))
+        for name in names:
+            r = mcp.tools_list_size(root, name, timeout)
+            if r.get("ok"):
+                rows[name] = {"tools": r["tools"], "tokens": int(round(r["bytes"] / CHARS_PER_TOKEN))}
+            else:
+                rows[name] = {"skipped": r.get("reason", "unavailable")}
+    except Exception as exc:  # noqa: BLE001
+        rows["_error"] = {"skipped": str(exc)[:120]}
+    result = {"measured": _dt.datetime.now().isoformat(timespec="seconds"), "servers": rows,
+              "total": sum(r.get("tokens", 0) for r in rows.values())}
+    _write_json(root / MCP_CACHE, result)
+    return result
+
+
+def _write_json(path: Path, data: dict) -> None:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _read_json(path: Path) -> dict:
+    try:
+        return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def k(n: int) -> str:
+    return f"{n / 1000:.1f}K" if n >= 1000 else str(n)
+
+
+def real_lines(r: dict, n_requested: int) -> list[str]:
+    if not r.get("sessions"):
+        return ["first turn: no Claude Code sessions found for this repo yet"]
+    med, always = r["median"], r["agate_always_loaded"]
+    pct = f" ({round(100 * always / med)}%)" if med else ""
+    return [f"first turn (claude-code, last {len(r['sessions'])} sessions): median {k(med)} tokens · last "
+            f"{k(r['last'])} · Agate always-loaded ≈{k(always)}{pct} · rest (harness prompt, tools, other) "
+            f"≈{k(max(med - always, 0))}"]
+
+
+def mcp_lines(m: dict) -> list[str]:
+    rows = m.get("servers") or {}
+    if not rows:
+        return ["MCP tools: no connectors in .agate/mcp/servers.json"]
+    out = []
+    for name, r in rows.items():
+        out.append(f"  {name}: {r['tools']} tools ≈{k(r['tokens'])} tokens" if "tokens" in r
+                   else f"  {name}: skipped ({r['skipped']})")
+    return [f"MCP tools: ≈{k(m.get('total', 0))} tokens"] + out
+
+
+def attention(root: Path) -> list[dict]:
+    """For `agate.py start`: ≤1 line from caches, only above the thresholds. Never raises, never scans MCP."""
+    try:
+        if os.environ.get("AGATE_OFFLINE_TOKENS"):
+            return []
+        th = thresholds(root)
+        real = _read_json(root / REAL_CACHE)
+        stale = True
+        if real.get("measured"):
+            try:
+                stale = _dt.datetime.now() - _dt.datetime.fromisoformat(real["measured"]) > REAL_REFRESH
+            except ValueError:
+                stale = True
+        if stale:  # cheap: only the head of a few transcripts
+            real = measure_real(root)
+        mcp_data = _read_json(root / MCP_CACHE)
+        mcp_total = int(mcp_data.get("total") or 0)
+        first = int(real.get("last") or real.get("median") or 0)
+        if first <= th["tokens_first_turn_warn"] and mcp_total <= th["tokens_mcp_tools_warn"]:
+            return []
+        parts = {"MCP tool definitions": (mcp_total, "disable unused connectors in .agate/mcp/servers.json"),
+                 "memory/INDEX.md": (int(real.get("memory_index") or 0), "condense memory/INDEX.md"),
+                 "Agate always-loaded": (int(real.get("agate_always_loaded") or 0),
+                                         "move procedures from AGENTS.md to guides")}
+        name, (size, action) = max(parts.items(), key=lambda kv: kv[1][0])
+        if first > th["tokens_first_turn_warn"]:
+            head = f"first turn ≈{k(first)} tokens (> {k(th['tokens_first_turn_warn'])})"
+        else:
+            head = f"MCP tool definitions ≈{k(mcp_total)} tokens (> {k(th['tokens_mcp_tools_warn'])})"
+        return [{"severity": 6, "text": f"{head}; biggest Agate-side part: {name} ≈{k(size)} → {action} "
+                                        "(details: `python3 .agate/agate.py tokens --real --mcp`)"}]
+    except Exception:  # noqa: BLE001
+        return []
+
+
 # ---------------------------------------------------------------- live validators for `agate.py env check --live`
 
 def _validate_anthropic(value: str, timeout: float):
@@ -392,6 +566,22 @@ def format_rows(rows: dict) -> str:
 
 def cmd_tokens(a) -> int:
     root = Path(a.root).resolve()
+    if a.real or a.mcp:
+        out = {}
+        if a.real:
+            out["real"] = measure_real(root, a.sessions)
+        if a.mcp:
+            out["mcp"] = measure_mcp(root)
+        if a.json:
+            print(json.dumps(out, ensure_ascii=False, indent=2))
+            return 0
+        if "real" in out:
+            print("\n".join(real_lines(out["real"], a.sessions)))
+            if out["real"].get("memory_index"):
+                print(f"  of which memory/INDEX.md: ≈{k(out['real']['memory_index'])}")
+        if "mcp" in out:
+            print("\n".join(mcp_lines(out["mcp"])))
+        return 0
     providers = list(PROVIDERS) if a.provider == "all" else [a.provider]
     report = measure(root, collect(root, a.paths or None), providers, a.exact)
     report["recommendations"] = recommendations(root, report) if not a.paths else []
@@ -403,6 +593,9 @@ def cmd_tokens(a) -> int:
         if group == "always_loaded" and report.get("skill_descriptions"):
             sd = report["skill_descriptions"]
             print(f"  of which skill descriptions: ≈{sd['tokens']:,} ({sd['skills']} skills)")
+        if group == "always_loaded" and report.get("memory_index"):
+            mi = report["memory_index"]
+            print(f"  of which memory/INDEX.md: ≈{mi['tokens']:,} ({mi['lines']} lines)")
     if report["files"]:
         print("heaviest files: " + ", ".join(f"{f['path']} ≈{f['tokens']:,}" for f in report["files"][:5]))
     for note in report["notes"]:
@@ -416,5 +609,9 @@ def register(sub, root: Path) -> None:
     p.add_argument("paths", nargs="*", help="count only these files/folders")
     p.add_argument("--exact", action="store_true", help="use the providers' official counters when credentials exist")
     p.add_argument("--provider", choices=(*PROVIDERS, "all"), default="all")
+    p.add_argument("--real", action="store_true",
+                   help="what really entered the first turn of the last sessions (harness transcripts, usage only)")
+    p.add_argument("--mcp", action="store_true", help="weight of each local connector's tool definitions (tools/list)")
+    p.add_argument("--sessions", type=int, default=5, help="how many recent sessions --real looks at")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_tokens)

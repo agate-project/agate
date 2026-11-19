@@ -428,6 +428,39 @@ def missing_in_use(root: Path) -> list[tuple[str, list[str]]]:
             if not vals.get(var) and not os.environ.get(var)]
 
 
+
+# ---------------------------------------------------------------- keys pasted in the chat
+
+PASTE_PATTERNS = [
+    ("Anthropic", r"sk-ant-[A-Za-z0-9_-]{20,}"), ("OpenAI-style", r"\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}"),
+    ("Tavily", r"tvly-[A-Za-z0-9_-]{16,}"), ("GitHub", r"(?:ghp_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,})"),
+    ("Slack", r"xox[abprs]-[A-Za-z0-9-]{20,}"), ("Google", r"AIza[A-Za-z0-9_-]{30,}"),
+    ("AWS", r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b"), ("Stripe", r"\b(?:sk|rk)_live_[A-Za-z0-9]{20,}"),
+    ("private key", r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
+]
+BLOCK_MESSAGE = ("Your message looks like it contains a {what} key, so it was NOT sent to the model. Treat that key "
+                 "as exposed: rotate it at the provider. To store the new one safely, use the env-manager app or a "
+                 "terminal: python3 .agate/agate.py env set NAME (hidden input). Never paste keys in the chat.")
+
+
+def scan_text(text: str) -> list[str]:
+    """Providers whose key formats appear in the text (values are never returned)."""
+    return [who for who, pat in PASTE_PATTERNS if re.search(pat, text or "")]
+
+
+def cmd_scan_prompt(a) -> int:
+    """Hook entry: reads the harness's JSON from stdin ({"prompt": …}); exit 2 + stderr blocks the message."""
+    raw = sys.stdin.read()
+    try:
+        prompt = json.loads(raw).get("prompt", "")
+    except (ValueError, AttributeError):
+        prompt = raw
+    found = scan_text(prompt)
+    if not found:
+        return 0
+    sys.stderr.write(BLOCK_MESSAGE.format(what=" / ".join(sorted(set(found)))) + "\n")
+    return 2
+
 # ---------------------------------------------------------------- CLI
 
 def cmd_env(a) -> int:
@@ -504,3 +537,5 @@ def register(sub, root: Path) -> None:
     p.add_argument("--stdin", action="store_true", help="set: read the value from stdin (for apps; never echoed)")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_env)
+    q = sub.add_parser("scan-prompt", help="hook: block a chat message that contains an API key (reads JSON on stdin)")
+    q.set_defaults(func=cmd_scan_prompt)

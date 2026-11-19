@@ -46,7 +46,17 @@
   var FILE = PATH;                                  // "artifacts/…/x.canvas/" or "artifacts/…/x.html"
   var STATIC = PATH.slice(-1) === "/" ? "comments.json" : PATH.split("/").pop().replace(/\.html?$/, "") + ".comments.json";
   var API = "/api/";
-  var live = false, mode = false, showResolved = false, list = [], me = "", lastJson = "";
+  var live = false, liveView = false, mode = false, showResolved = false, list = [], me = "", lastJson = "";
+  var SELF_SRC = document.currentScript && document.currentScript.src;
+  // origin: vista en vivo (decisions/0028): live.js se carga solo cuando el visor es `agate.py serve`.
+  function loadLive() {
+    if (window.__agateLive || document.querySelector("script[data-agate-live]")) return;
+    var src = SELF_SRC ? SELF_SRC.replace(/comments\.js(\?.*)?$/, "live.js") : "/.agate/core/canvas/live.js";
+    var sc = document.createElement("script");
+    sc.src = src; sc.defer = true; sc.setAttribute("data-agate-live", "");
+    document.head.appendChild(sc);
+  }
+  window.AgateComments = { reload: function () { return load(); } };
 
   // ---------- tiny DOM helpers (text only, never parsed as HTML) ----------
   function el(tag, cls, parent, text) {
@@ -86,6 +96,7 @@
     s.textContent = [
       ":root{--cm-bg:#fbfbfa;--cm-fg:#1d2126;--cm-mut:#5d636b;--cm-line:#d6d7d4;--cm-acc:#2c5d88;--cm-pin:#a8492a;--cm-soft:#eef2f6}",
       "@media (prefers-color-scheme:dark){:root{--cm-bg:#1c2025;--cm-fg:#e6e8ea;--cm-mut:#9aa1a9;--cm-line:#2f353c;--cm-acc:#7fb0dc;--cm-pin:#e08a66;--cm-soft:#232a33}}",
+      ".cm-panel[hidden],.cm-hint[hidden],.cm-pop[hidden]{display:none!important}",
       ".cm-toggle{font:500 13px/1 system-ui,sans-serif;border:1px solid var(--cm-line);background:var(--cm-bg);color:var(--cm-fg);border-radius:6px;padding:7px 10px;cursor:pointer}",
       ".cm-toggle[aria-pressed=true]{background:var(--cm-acc);color:#fff;border-color:var(--cm-acc)}",
       ".cm-float{position:fixed;right:max(16px,env(safe-area-inset-right,0px));bottom:16px;z-index:2147483000;box-shadow:0 4px 16px rgba(0,0,0,.15)}",
@@ -330,14 +341,17 @@
       .catch(function () { return null; })
       .then(function (h) {
         live = !!(h && h.comments);
+        liveView = !!(h && h.live);
         if (!live) toggle.title = t("readonly");
         if (live) fetch(API + "whoami", { cache: "no-store" }).then(function (r) { return r.json(); })
           .then(function (w) { if (w && w.name) me = w.name; }).catch(function () { /* none */ });
         return load();
       })
-      .then(function () {
+      .then(function (h) {
         if (m) { var c = list.filter(function (x) { return x.id === m[1]; })[0]; if (c) { openPanel(); goTo(c); } }
-        if (live) setInterval(load, 5000);
+        // With the live view (SSE) comments refresh on change; polling stays as a slow fallback.
+        if (live) setInterval(function () { if (!window.__agateLiveOn) load(); }, 5000);
+        if (liveView) loadLive();
       });
   }
 

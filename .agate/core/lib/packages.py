@@ -12,6 +12,8 @@ import argparse
 import datetime as _dt
 import hashlib
 import json
+import os
+import re
 import shutil
 import subprocess
 import sys
@@ -45,31 +47,135 @@ def git_commit(path: Path) -> str | None:
         return None
 
 
-def fetch(repo: str, sub: str, tmp: Path) -> tuple[Path, str | None]:
+def fetch(repo: str, sub: str, tmp: Path, ref: str | None = None) -> tuple[Path, str | None]:
     """Make `repo` (path or URL) available locally. Returns (folder of the sub-path, commit).
 
     For URLs with a sub-path only that folder is downloaded (partial clone + sparse checkout); if the server or the
-    local git doesn't support it, it falls back to a full shallow clone.
+    local git doesn't support it, it falls back to a full shallow clone. With `ref` (a release tag or branch name) the
+    content comes from that ref, never from the branch tip; local repos are then cloned too, so the working tree of the
+    source is not what gets installed.
     """
-    if not is_url(repo):
+    if not is_url(repo) and not ref:
         root = Path(repo).expanduser().resolve()
         commit = git_commit(root) if (root / ".git").exists() else None
         return (root / sub if sub else root), commit
     dest = tmp / "src"
+    branch = ["--branch", ref] if ref else []
+    source = repo if is_url(repo) else str(Path(repo).expanduser().resolve())
 
     def run(*args: str) -> None:
         subprocess.run(["git", *args], check=True, capture_output=True, text=True)
     if sub:
         try:
-            run("clone", "--quiet", "--filter=blob:none", "--no-checkout", "--depth", "1", repo, str(dest))
+            run("clone", "--quiet", "--filter=blob:none", "--no-checkout", "--depth", "1", *branch, source, str(dest))
             run("-C", str(dest), "sparse-checkout", "set", sub)
             run("-C", str(dest), "checkout", "--quiet")
         except subprocess.CalledProcessError:
             shutil.rmtree(dest, ignore_errors=True)
-            run("clone", "--quiet", "--depth", "1", repo, str(dest))
+            run("clone", "--quiet", "--depth", "1", *branch, source, str(dest))
     else:
-        run("clone", "--quiet", "--depth", "1", repo, str(dest))
+        run("clone", "--quiet", "--depth", "1", *branch, source, str(dest))
     return (dest / sub if sub else dest), git_commit(dest)
+
+
+# ---------------------------------------------------------------- supply chain: release tags and scripts
+
+SCRIPT_SUFFIXES = (".py", ".sh", ".bash", ".js", ".mjs", ".cjs", ".ps1", ".bat", ".cmd")
+_SEMVER = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$")
+
+
+def is_script_path(rel: str) -> bool:
+    rel = rel.replace("\\", "/")
+    return rel.endswith(SCRIPT_SUFFIXES) or "/hooks/" in f"/{rel}"
+
+
+def script_files(folder: Path) -> list[str]:
+    """Code files a package would add to the project: script suffixes, executables and git hooks."""
+    out = []
+    if not folder.is_dir():
+        return out
+    for p in sorted(folder.rglob("*")):
+        rel = p.relative_to(folder).as_posix()
+        if not p.is_file() or rel.startswith(".git/") or "/__pycache__/" in f"/{rel}" or rel.endswith(".pyc"):
+            continue
+        if is_script_path(rel) or os.access(p, os.X_OK):
+            out.append(rel)
+    return out
+
+
+def changed_scripts(old: Path, new: Path) -> list[str]:
+    """Scripts added, removed or changed between an installed folder and its new version."""
+    def files(folder: Path) -> dict[str, str]:
+        return {rel: hashlib.sha256((folder / rel).read_bytes()).hexdigest() for rel in script_files(folder)}
+    a, b = files(old), files(new)
+    return sorted(r for r in set(a) | set(b) if a.get(r) != b.get(r))
+
+
+def _norm_repo(repo: str) -> str:
+    repo = (repo or "").strip().rstrip("/")
+    if repo.endswith(".git"):
+        repo = repo[:-4]
+    if repo and not is_url(repo):
+        repo = str(Path(repo).expanduser().resolve())
+    return repo
+
+
+def release_policy(root: Path, repo: str) -> str | None:
+    """'tags' when the project's library says this repo is installed from release tags (base and hub by default)."""
+    lib = read_json(root / ".agate/library.json")
+    want = _norm_repo(repo)
+    entries = list(lib.get("sources", []))
+    if isinstance(lib.get("base"), dict):
+        entries.append(lib["base"])
+    for entry in entries:
+        if entry.get("repo") and _norm_repo(entry["repo"]) == want and entry.get("releases") == "tags":
+            return "tags"
+    return None
+
+
+def latest_tag(repo: str, include_pre: bool = False, timeout: float = 15.0) -> tuple[str, str] | None:
+    """Latest semver release tag of a repo as (tag, commit), via `git ls-remote --tags` (nothing downloaded)."""
+    source = repo if is_url(repo) else str(Path(repo).expanduser().resolve())
+    out = subprocess.run(["git", "ls-remote", "--tags", source], capture_output=True, text=True, timeout=timeout,
+                         check=True).stdout
+    commits: dict[str, str] = {}
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) != 2 or not parts[1].startswith("refs/tags/"):
+            continue
+        name = parts[1][len("refs/tags/"):]
+        peeled = name.endswith("^{}")
+        name = name[:-3] if peeled else name
+        if peeled or name not in commits:
+            commits[name] = parts[0]
+    best = None
+    for name, commit in commits.items():
+        m = _SEMVER.match(name)
+        if not m or (m.group(4) and not include_pre):
+            continue
+        key = (int(m.group(1)), int(m.group(2)), int(m.group(3)), 0 if m.group(4) else 1)
+        if best is None or key > best[0]:
+            best = (key, name, commit)
+    return (best[1], best[2]) if best else None
+
+
+def release_ref(root: Path, repo: str) -> str | None:
+    """The tag to install from when the repo follows releases; None for pinned/plain sources.
+
+    Raises RuntimeError when the repo follows releases but has no release tag yet (never falls back to the branch).
+    """
+    if release_policy(root, repo) != "tags":
+        return None
+    found = latest_tag(repo)
+    if not found:
+        raise RuntimeError(f"{repo} has no release tag (vX.Y.Z) yet; Agate never installs from the branch tip.")
+    return found[0]
+
+
+def consent_line(name: str, source: str, license_: str, scripts: list[str]) -> str:
+    first = ", ".join(scripts[:3]) + ("…" if len(scripts) > 3 else "")
+    return (f"{name} from {source} ({license_ or 'license unknown'}) includes {len(scripts)} scripts ({first}) "
+            f"→ ask the person: install? then rerun with --yes")
 
 
 def folder_hash(folder: Path) -> str:
@@ -135,8 +241,11 @@ def save_lock(root: Path, data: dict) -> None:
 def record(root: Path, name: str, kind: str, source: dict, version: str | None) -> None:
     """Record (or refresh) a base/extension package after a sync."""
     data = load_lock(root)
-    data["packages"][name] = {"kind": kind, "name": name, "repo": source.get("repo"), "path": source.get("path", ""),
-                              "ref": source.get("commit"), "version": version, "installed": today()}
+    entry = {"kind": kind, "name": name, "repo": source.get("repo"), "path": source.get("path", ""),
+             "ref": source.get("commit"), "version": version, "installed": today()}
+    if source.get("tag"):
+        entry["tag"] = source["tag"]
+    data["packages"][name] = entry
     save_lock(root, data)
 
 
@@ -151,8 +260,11 @@ def skill_rows(root: Path) -> list[dict]:
                "source": f"{entry.get('source')}/{name}", "status": "unknown"}
         try:
             src = proj.source(entry["source"])
-            items, commit = proj.catalog(src, None, refresh=True)
-            row["available"] = commit
+            ref, tag = ss.effective_ref(proj, src, None)
+            items, commit = proj.catalog(src, ref, refresh=True)
+            if tag:
+                row["installed"], row["available"] = entry.get("tag") or entry.get("ref", "?"), tag
+            row["available"] = row["available"] or commit
             if name not in items:
                 row["status"] = "missing upstream"
             elif folder_hash(items[name]["dir"]) != entry.get("sha256"):
@@ -289,6 +401,7 @@ def update_notice(root: Path, offline: bool = False) -> str | None:
         repos = watched_repos(root)
         for repo in repos:
             try:
+                # Watching the branch head is enough: when it moves, the precise check compares release tags.
                 heads[repo] = ls_remote(repo)
             except (OSError, subprocess.SubprocessError, ValueError):
                 failed += 1
@@ -350,20 +463,30 @@ def hub_apps_path(root: Path) -> str:
     return "apps"
 
 
-def install_app(root: Path, name: str, hub: str | None = None, ref_label: str = "") -> int:
+def install_app(root: Path, name: str, hub: str | None = None, ref_label: str = "", yes: bool = False) -> int:
     import sync  # noqa: PLC0415
     repo = hub or sync.hub_repo(root)
     sub = f"{hub_apps_path(root)}/{name}"
     tmp = Path(tempfile.mkdtemp(prefix="agate-app-"))
     try:
         try:
-            folder, commit = fetch(repo, sub, tmp)
+            tag = release_ref(root, repo)
+            folder, commit = fetch(repo, sub, tmp, tag)
+        except RuntimeError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 1
         except (OSError, subprocess.CalledProcessError) as exc:
             print(f"Error: could not fetch app '{name}' from {repo} ({exc.__class__.__name__}).", file=sys.stderr)
             return 1
         if not folder.is_dir():
             print(f"Error: the hub has no app '{name}' ({repo}#{sub}).", file=sys.stderr)
             return 1
+        scripts = script_files(folder)
+        if scripts and not yes:
+            meta0 = read_json(folder / "app.json") or read_json(folder / "agate.json")
+            print(consent_line(f"app:{name}", f"{repo}{'@' + tag if tag else ''}", meta0.get("license", "own"),
+                               scripts))
+            return 3
         dest = root / APPS_DIR / name
         if dest.exists():
             shutil.rmtree(dest)
@@ -374,8 +497,11 @@ def install_app(root: Path, name: str, hub: str | None = None, ref_label: str = 
         data["packages"][f"app:{name}"] = {"kind": "app", "name": name, "repo": repo, "path": sub, "ref": commit,
                                            "version": meta.get("version"), "sha256": folder_hash(dest),
                                            "installed": today()}
+        if tag:
+            data["packages"][f"app:{name}"]["tag"] = tag
         save_lock(root, data)
-        print(f"Installed app '{name}' ({meta.get('version') or '?'}) in {(APPS_DIR / name).as_posix()}.")
+        print(f"Installed app '{name}' ({meta.get('version') or '?'}{', ' + tag if tag else ''}) in "
+              f"{(APPS_DIR / name).as_posix()}.")
         readme = next((p for p in ("README.md", "APP.md") if (dest / p).is_file()), None)
         if readme:
             print(f"  How to open it: {(APPS_DIR / name / readme).as_posix()}")
@@ -408,17 +534,32 @@ def app_rows(root: Path) -> list[dict]:
                "source": f"{e.get('repo')}#{e.get('path')}", "status": "unknown"}
         tmp = Path(tempfile.mkdtemp(prefix="agate-appcheck-"))
         try:
-            folder, commit = fetch(e["repo"], e["path"], tmp)
-            row["available"] = (read_json(folder / "app.json") or read_json(folder / "agate.json")).get("version") \
-                or commit
+            tag = release_ref(root, e["repo"])
+            folder, commit = fetch(e["repo"], e["path"], tmp, tag)
+            row["available"] = tag or (read_json(folder / "app.json") or read_json(folder / "agate.json")).get(
+                "version") or commit
+            if tag:
+                row["installed"] = e.get("tag") or row["installed"]
             row["status"] = ("missing upstream" if not folder.is_dir() else
                              "up to date" if folder_hash(folder) == e.get("sha256") else "update available")
-        except (OSError, subprocess.CalledProcessError, json.JSONDecodeError) as exc:
+        except (OSError, subprocess.CalledProcessError, json.JSONDecodeError, RuntimeError) as exc:
             row["status"] = f"unreachable ({exc.__class__.__name__})"
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
         rows.append(row)
     return rows
+
+
+def app_changed_scripts(root: Path, name: str) -> list[str]:
+    e = load_lock(root)["packages"].get(f"app:{name}", {})
+    tmp = Path(tempfile.mkdtemp(prefix="agate-appdiff-"))
+    try:
+        folder, _ = fetch(e["repo"], e["path"], tmp, release_ref(root, e["repo"]))
+        return changed_scripts(root / APPS_DIR / name, folder)
+    except (OSError, subprocess.CalledProcessError, RuntimeError, KeyError):
+        return []
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 def print_rows(rows: list[dict]) -> None:
@@ -487,11 +628,14 @@ def cmd_update(a) -> int:
             code = max(code, sync.run_sync(root, _source_for(root, row), dry_run=not a.yes))
         elif row["kind"] == "app":
             print(f"== app {label}: {row['installed']} → {row['available'] or '?'}")
+            changed = app_changed_scripts(root, row["name"])
+            if changed:
+                print("  scripts changed: " + ", ".join(changed))
             if a.yes:
                 entry = load_lock(root)["packages"].get(f"app:{row['name']}", {})
-                code = max(code, install_app(root, row["name"], entry.get("repo")))
+                code = max(code, install_app(root, row["name"], entry.get("repo"), yes=True))
         else:
-            ns = argparse.Namespace(name=row["name"], ref=None, yes=a.yes, force=a.force)
+            ns = argparse.Namespace(name=row["name"], ref=getattr(a, "ref", None), yes=a.yes, force=a.force)
             code = max(code, ss.cmd_update(ss.Project(root), ns))
     if a.yes and code == 0:
         mark_applied(root)
@@ -508,9 +652,10 @@ def _is_extension(root: Path, name: str) -> str | None:
     source = f"{sync.hub_repo(root)}#{sync.hub_extensions_path(root)}/{name}"
     tmp = Path(tempfile.mkdtemp(prefix="agate-add-"))
     try:
-        folder, _ = fetch(*sync.split_source(source), tmp)
+        repo, sub = sync.split_source(source)
+        folder, _ = fetch(repo, sub, tmp, release_ref(root, repo))
         return source if (folder / ".agate/expansions").is_dir() else None
-    except (OSError, subprocess.CalledProcessError):
+    except (OSError, subprocess.CalledProcessError, RuntimeError):
         return None
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -522,16 +667,17 @@ def cmd_add(a) -> int:
     root = _root(a)
     target = a.target
     if target.startswith("app:"):
-        return install_app(root, target[4:], a.hub)
+        return install_app(root, target[4:], a.hub, yes=a.yes)
     if target.startswith("ext:"):
         name = target[4:]
-        return sync.run_sync(root, f"{a.hub or sync.hub_repo(root)}#{sync.hub_extensions_path(root)}/{name}", False)
+        return sync.run_sync(root, f"{a.hub or sync.hub_repo(root)}#{sync.hub_extensions_path(root)}/{name}", False,
+                             consent=a.yes)
     if not target.startswith("pack:") and "/" not in target:
         if a.hub:
-            return sync.run_sync(root, f"{a.hub}#{sync.hub_extensions_path(root)}/{target}", False)
+            return sync.run_sync(root, f"{a.hub}#{sync.hub_extensions_path(root)}/{target}", False, consent=a.yes)
         source = _is_extension(root, target)
         if source:
-            return sync.run_sync(root, source, False)
+            return sync.run_sync(root, source, False, consent=a.yes)
     try:
         return ss.cmd_add(ss.Project(root), argparse.Namespace(target=target, yes=a.yes, force=a.force))
     except ss.UserError as exc:
@@ -580,6 +726,7 @@ def register(sub, root: Path) -> None:
     p.add_argument("--force", action="store_true", help="also overwrite manual edits in library skills")
     p.add_argument("--from", dest="source", help="sync from this base/extension path or URL (#sub-path allowed)")
     p.add_argument("--snooze", metavar="DURATION", help="silence update notices for 12h, 1d, 7d… (person said later)")
+    p.add_argument("--ref", help="move a pinned skill source to this commit (shows the diff first)")
     p = add("add", cmd_add, "install an extension (name or ext:name), a skill (source/skill, skill, pack:name) or "
                             "an app (app:name, on demand)")
     p.add_argument("target")

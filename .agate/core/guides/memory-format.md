@@ -1,5 +1,18 @@
 # Memory entries
 
+## Commands (use these; they keep the file and the index in sync)
+```
+python3 .agate/agate.py memory add NAME --description "one line" [--type decision] [--scope shared|local] [--body - ]
+python3 .agate/agate.py memory update NAME [--description "…"] [--body - | --append "…"]
+python3 .agate/agate.py memory remove NAME --yes
+python3 .agate/agate.py memory list [--scope shared] [--stale 120]
+python3 .agate/agate.py memory check [--fix]
+```
+- `add` writes `memory/<scope>/<name>.md` with its frontmatter and the index line; it refuses if the entry exists
+  (then `update`). `--body -` reads the text from stdin.
+- `check --fix` adds missing index lines and drops broken ones; it never deletes entries. `agate.py start` tells you
+  when something needs it, and prints the index itself while it is short.
+
 ## Where
 - `memory/shared/`: the project's memory for the whole team (committed). A profile of someone using the project goes
   here only if really needed (role, how they like to receive information), with nothing sensitive.
@@ -16,7 +29,7 @@ Flat `key: value` YAML, written with `agate.py lang set` or by you:
 - `memory/shared/project.yml`: `default_language` and other short project defaults.
 - Long text goes in a .md referenced by `notes:`. JSON is only for tool state (`state.json`, `chats.json`…).
 
-## Format
+## Format (what `memory add` writes)
 One file per entry:
 ```
 ---
