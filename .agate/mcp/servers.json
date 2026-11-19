@@ -1,0 +1,4 @@
+{
+  "_help": "This project's connectors (MCP). Format in .agate/mcp/README.md. Edited by `python3 .agate/agate.py mcp add`; never put secret values here, only variable names.",
+  "servers": {}
+}

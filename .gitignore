@@ -1,0 +1,7 @@
+# Agate base
+.env
+memory/local/
+archive/*
+!archive/INDEX.md
+__pycache__/
+.DS_Store

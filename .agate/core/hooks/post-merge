@@ -1,0 +1,6 @@
+#!/bin/sh
+# Agate: after a pull/merge (post-merge) or rebase/amend (post-rewrite), regenerate MCP configs if
+# .agate/mcp/servers.json changed. Never blocks.
+. "$(dirname "$0")/agate-lib.sh"
+agate_mcp_run sync --if-stale --quiet --from-hook || true
+exit 0

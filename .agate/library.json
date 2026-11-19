@@ -1,0 +1,240 @@
+{
+  "version": 1,
+  "about": "Project skill sources, in order of preference. Managed with agate.py. Add your own sources (from your team or company) with `agate.py sources --add`.",
+  "sources": [
+    {
+      "id": "agate",
+      "repo": "https://github.com/agate-project/agate-hub",
+      "path": "skills/",
+      "extensions": "extensions/",
+      "packs": "packs.json",
+      "trust": "trusted",
+      "license": "own",
+      "note": "Agate hub: extra skills (skills/) and extensions (extensions/, installed with `sync.py add <name>`). Downloaded on demand."
+    },
+    {
+      "id": "anthropic",
+      "repo": "https://github.com/anthropics/skills",
+      "path": "skills/",
+      "ref": "e4bb5d9",
+      "trust": "trusted",
+      "license": "Apache-2.0",
+      "note": "Official Anthropic skills (Apache 2.0 license verified on 2026-11-19 at e4bb5d9)."
+    }
+  ],
+  "packs": {
+    "documents": [
+      "anthropic/pdf",
+      "anthropic/docx",
+      "anthropic/pptx",
+      "anthropic/xlsx"
+    ],
+    "design": [
+      "anthropic/frontend-design",
+      "anthropic/theme-factory"
+    ],
+    "writing": [
+      "anthropic/doc-coauthoring",
+      "anthropic/internal-comms"
+    ],
+    "build": [
+      "anthropic/skill-creator",
+      "anthropic/mcp-builder",
+      "anthropic/webapp-testing"
+    ]
+  },
+  "exclude": [
+    "anthropic/brand-guidelines",
+    "anthropic/academy-guide",
+    "anthropic/claude-api",
+    "anthropic/web-artifacts-builder",
+    "anthropic/slack-gif-creator",
+    "anthropic/algorithmic-art",
+    "anthropic/canvas-design"
+  ],
+  "requires": {
+    "anthropic/pdf": {
+      "python": [
+        {
+          "import": "pypdf",
+          "pip": "pypdf"
+        },
+        {
+          "import": "pdfplumber",
+          "pip": "pdfplumber"
+        },
+        {
+          "import": "reportlab",
+          "pip": "reportlab"
+        },
+        {
+          "import": "pypdfium2",
+          "pip": "pypdfium2",
+          "optional": true
+        },
+        {
+          "import": "pytesseract",
+          "pip": "pytesseract pdf2image",
+          "optional": true,
+          "for": "OCR of scanned PDFs"
+        }
+      ],
+      "bin": [
+        {
+          "name": "qpdf",
+          "apt": "qpdf",
+          "brew": "qpdf",
+          "winget": "QPDF.QPDF"
+        },
+        {
+          "name": "pdftotext",
+          "apt": "poppler-utils",
+          "brew": "poppler",
+          "winget": "oschwartz10612.Poppler",
+          "optional": true
+        },
+        {
+          "name": "pdftoppm",
+          "apt": "poppler-utils",
+          "brew": "poppler",
+          "winget": "oschwartz10612.Poppler",
+          "optional": true
+        }
+      ]
+    },
+    "anthropic/docx": {
+      "node": [
+        {
+          "package": "docx"
+        }
+      ],
+      "bin": [
+        {
+          "name": "pandoc",
+          "apt": "pandoc",
+          "brew": "pandoc",
+          "winget": "JohnMacFarlane.Pandoc"
+        },
+        {
+          "name": "soffice",
+          "apt": "libreoffice",
+          "brew": "--cask libreoffice",
+          "winget": "TheDocumentFoundation.LibreOffice",
+          "heavy": true
+        },
+        {
+          "name": "pdftoppm",
+          "apt": "poppler-utils",
+          "brew": "poppler",
+          "winget": "oschwartz10612.Poppler"
+        }
+      ]
+    },
+    "anthropic/pptx": {
+      "python": [
+        {
+          "import": "pptx",
+          "pip": "python-pptx"
+        },
+        {
+          "import": "PIL",
+          "pip": "Pillow"
+        },
+        {
+          "import": "defusedxml",
+          "pip": "defusedxml"
+        },
+        {
+          "import": "lxml",
+          "pip": "lxml"
+        }
+      ],
+      "node": [
+        {
+          "package": "pptxgenjs"
+        }
+      ],
+      "bin": [
+        {
+          "name": "soffice",
+          "apt": "libreoffice",
+          "brew": "--cask libreoffice",
+          "winget": "TheDocumentFoundation.LibreOffice",
+          "heavy": true
+        },
+        {
+          "name": "pdftoppm",
+          "apt": "poppler-utils",
+          "brew": "poppler",
+          "winget": "oschwartz10612.Poppler"
+        }
+      ]
+    },
+    "anthropic/xlsx": {
+      "python": [
+        {
+          "import": "openpyxl",
+          "pip": "openpyxl"
+        },
+        {
+          "import": "pandas",
+          "pip": "pandas"
+        },
+        {
+          "import": "markitdown",
+          "pip": "markitdown"
+        },
+        {
+          "import": "defusedxml",
+          "pip": "defusedxml"
+        }
+      ],
+      "bin": [
+        {
+          "name": "soffice",
+          "apt": "libreoffice",
+          "brew": "--cask libreoffice",
+          "winget": "TheDocumentFoundation.LibreOffice",
+          "heavy": true
+        }
+      ]
+    },
+    "anthropic/webapp-testing": {
+      "python": [
+        {
+          "import": "playwright",
+          "pip": "playwright",
+          "after": "python3 -m playwright install chromium"
+        }
+      ]
+    },
+    "anthropic/mcp-builder": {
+      "python": [
+        {
+          "import": "mcp",
+          "pip": "mcp",
+          "optional": true
+        },
+        {
+          "import": "pydantic",
+          "pip": "pydantic",
+          "optional": true
+        },
+        {
+          "import": "httpx",
+          "pip": "httpx",
+          "optional": true
+        }
+      ],
+      "bin": [
+        {
+          "name": "node",
+          "apt": "nodejs",
+          "brew": "node",
+          "winget": "OpenJS.NodeJS.LTS",
+          "optional": true
+        }
+      ]
+    }
+  }
+}

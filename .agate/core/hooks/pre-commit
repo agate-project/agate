@@ -1,0 +1,16 @@
+#!/bin/sh
+# Agate: if this commit changes .agate/mcp/servers.json (or .agate/project/mcp.py), regenerate the MCP configs and add them
+# to the commit. Blocks only when the generation itself fails.
+. "$(dirname "$0")/agate-lib.sh"
+changed=$(git diff --cached --name-only -- .agate/mcp/servers.json .agate/project/mcp.py 2>/dev/null)
+[ -n "$changed" ] || exit 0
+agate_mcp_run sync --if-stale --quiet --from-hook --stage
+status=$?
+if [ "$status" -eq 127 ]; then
+  exit 0  # no Python: warned above, do not block
+fi
+if [ "$status" -ne 0 ]; then
+  echo "Agate: could not regenerate MCP configs (see above). Fix .agate/mcp/servers.json, or commit with --no-verify." >&2
+  exit 1
+fi
+exit 0

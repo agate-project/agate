@@ -1,0 +1,13 @@
+# Agate project settings. This file belongs to the project: `agate.py update` never overwrites it.
+
+# Artifacts are local HTML files in artifacts/. Set to true only to ALSO publish them to an external artifact
+# service offered by the harness (the local file stays the original).
+external_artifacts: false
+
+# Context budget thresholds (used by `agate.py tokens` and the weekly check in `agate.py start`). Tokens unless noted.
+tokens_always_loaded_warn: 3000
+tokens_memory_index_lines: 150
+tokens_shared_memory_warn: 30000
+tokens_corpus_index: 100000
+tokens_corpus_rag: 300000
+tokens_file_large: 20000

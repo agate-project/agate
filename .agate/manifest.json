@@ -1,0 +1,23 @@
+{
+  "name": "agate",
+  "version": "0.4.0",
+  "owned": [
+    ".agate/agate.py",
+    ".agate/core/",
+    ".agents/skills/canvas/",
+    ".agents/skills/web-research/",
+    ".claude/output-styles/conversational.md"
+  ],
+  "blocks": {
+    "AGENTS.md": "agate",
+    "CLAUDE.md": "agate"
+  },
+  "seed": [
+    ".agate/library.json",
+    ".agate/config.yml",
+    ".agate/mcp/servers.json",
+    ".agate/mcp/README.md",
+    ".agate/project/README.md",
+    ".env.example"
+  ]
+}

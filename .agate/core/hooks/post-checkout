@@ -1,0 +1,7 @@
+#!/bin/sh
+# Agate: after switching branches, regenerate MCP configs if .agate/mcp/servers.json differs. Never blocks.
+# $3 = 1 for a branch checkout, 0 for a file checkout (ignored).
+[ "$3" = "1" ] || exit 0
+. "$(dirname "$0")/agate-lib.sh"
+agate_mcp_run sync --if-stale --quiet --from-hook || true
+exit 0
