@@ -28,10 +28,44 @@
 - **Your language.** Instructions are in English for the model; it replies in each person's own language.
 
 ## Quick start
-1. Click **Use this template** above (or `gh repo create <owner>/<name> --template agate-project/agate --private --clone`).
-2. Open the folder in your harness (Orca, Claude Code…).
-3. Say **hello**. The first `start` sets the project up (folders, git hooks) and the agent fills in what the project is
-   about as you talk. Want a guided start? Ask for `quick-start`.
+
+### Option A · Plain start (most projects)
+```bash
+gh repo create my-org/my-project --template agate-project/agate --private --clone
+```
+Or click **Use this template** above. Then open the folder in your harness (Orca, Claude Code…) and say hello:
+
+> **You:** Hi, this project is to redesign the rewards module of our app. Two of us will work on it.
+>
+> **Agent:** Done: I noted what the project is about and who works on it. Where do you want to start, reviewing how
+> the module works today or researching what other apps do with rewards?
+
+No questionnaire: the first `start` sets the project up (folders, git hooks) and the agent fills in what the project
+is about as you talk.
+
+### Option B · Guided start with `quick-start`
+For people who arrive with context to bring in: a Claude memory export, prompts, agents, skills, `CLAUDE.md` files or
+documents from other projects.
+```bash
+gh repo create my-org/my-project --template agate-project/agate --private --clone \
+  && cd my-project \
+  && python3 .agate/agate.py add quick-start --yes
+```
+(`--yes` is your consent: the skill includes a script.) Open the folder and ask for the guided start:
+
+> **You:** I want the guided start, and to bring what I use in Claude.
+>
+> **Agent:** Who else uses this project, and how do you like to work: should I ask before assuming, or assume and let
+> you review at the end? *(at most 4 questions, only what it doesn't know yet)*
+>
+> **You:** One teammate. Ask me first. Here's a zip with my stuff.
+>
+> **Agent:** This is what I'd bring in: 23 memory notes, your discovery agent turned into a skill, a PDF skill that
+> needs adapting (it uses claude.ai-only paths) and 2 documents. I skipped one file that looked like it had keys. You
+> also use Google Sheets and Figma: want to connect them? Shall I apply the import?
+
+Nothing is applied without your ok, and secrets are never copied. Without the terminal: create the project from the
+template, open it and say "install quick-start"; the agent asks for the ok and does it.
 
 ## How it fits together
 ```mermaid
