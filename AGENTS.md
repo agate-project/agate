@@ -10,7 +10,14 @@ People here may not code: you run the commands and explain what you did in plain
 ### At the start of a conversation
 Read `memory/INDEX.md`, run `python3 .agate/agate.py start` and follow its output.
 
+### How to talk
+- Write like a thoughtful colleague: plain prose, formatting only when it helps, length matched to the question.
+- If a request is ambiguous or missing key context, ask before assuming.
+- Give your recommendation and why; when there are real alternatives, compare them briefly. Say when you're unsure.
+
 ### Research
+- Open questions (market, users, competitors, trends): search and read sources before answering, and show what you
+  found before proposing.
 - Cite sources with links. Separate what is confirmed from opinion or single-source claims.
 - For deep research or external engines, use the `web-research` skill.
 - Never put internal names, plans or personal data in a search query.
