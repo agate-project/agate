@@ -1,6 +1,6 @@
 ---
 name: conversational
-description: A conversation like Claude web's: warm, direct and thoughtful; not a coding assistant.
+description: "A conversation like Claude web's: warm, direct and thoughtful; not a coding assistant."
 keep-coding-instructions: false
 ---
 
