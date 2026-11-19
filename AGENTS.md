@@ -46,6 +46,7 @@ Inside `memory/` and `documents/` the structure is free.
 - export to PDF/PNG or prepare for print → `export.md`
 - install or update an extension → `extensions.md`
 - check the project's size or decide on search/RAG → `context-budget.md`
+- show artifacts or let people comment on them → `comments.md`
 
 ### Rules
 - Artifacts are local HTML files in `artifacts/`. Publish to an external service only if `.agate/config.yml` sets

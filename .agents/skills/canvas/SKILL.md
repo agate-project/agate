@@ -68,7 +68,7 @@ artifacts/YYYY-MM/YYYY-MM-DD-name.canvas/
 }
 ```
 - **`lang`:** language of the engine's interface (buttons, help, labels). Set it from the person's saved language
-  (`memory/local/preferences.md`, or the project default in `memory/shared/project.md`). Built in: `en`, `es`.
+  (`memory/local/preferences.yml`, or the project default in `memory/shared/project.yml`). Built in: `en`, `es`.
   Without it, the engine uses `<html lang>` and then the browser language. Write the titles, notes and boards in
   that same language: the canvas is for people.
 - **Automatic layout:** a board or note without `x`/`y` is placed inside its section, in rows from left to right.

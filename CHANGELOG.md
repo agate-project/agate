@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.4.1 · 2026-11-19
+- **`start` says more, only when there is something to say:** `Reply in`, then (if known) `Person` (name · working
+  style · link to longer notes), `Last session` (latest noted chat or daily log, last 14 days), a line when this
+  harness has no native web search, a short skills list only in harnesses that don't load Agent Skills, and an
+  `Attention` list ordered by severity where each item carries its action and guide. At most 10 lines.
+- **Preferences in YAML:** `memory/local/preferences.yml` (or `memory/local/people/<name>.yml`) and
+  `memory/shared/project.yml`. Long notes stay in a `.md` referenced by `notes:`.
+- **Update checks with backoff:** first conversation of the day, then 1h → 2h → 1d (`update_check_schedule`), with
+  `git ls-remote` only; a pending update is mentioned at most once a day (`update_notice_hours`) and can be
+  snoozed (`agate.py update --snooze 7d`). Never applied without the person's ok.
+- **Skill descriptions are measured:** `agate.py tokens` shows their subtotal; `start` warns when they pass
+  `tokens_skill_descriptions_warn`. When every provider is the same uncalibrated estimate, `tokens` prints one row.
+- **Hub apps on demand:** `agate.py add app:<name>` / `remove app:<name>` (into `.agate/apps/`); they add no
+  always-loaded context, and `start` points to an installed app only when relevant (e.g. the key manager).
+- `agate.py env set NAME --stdin` reads the value from stdin (for apps); it is never echoed.
+- **Comments on canvases and artifacts:** `agate.py serve` (127.0.0.1 only, serves `artifacts/`, `documents/` and the
+  canvas engine, nothing else) adds a comments API. Canvases get a «Comment» button (key `C`): pins, threads,
+  replies, resolve, `#comment-<id>` links; any HTML artifact can include `.agate/core/canvas/comments.js`. Stored
+  next to the artifact (`comments.json` / `x.comments.json`, committed). `start` mentions new comments in one line;
+  `agate.py comments list --new | reply | resolve | seen`. Guide: `.agate/core/guides/comments.md`.
+
+### Migrating from 0.4.0
+- Nothing to do by hand: the first `agate.py start` (or `lang`) converts `memory/local/preferences.md`,
+  `memory/local/people/*.md` and `memory/shared/project.md` with frontmatter into `.yml`; any text below the
+  frontmatter stays in the `.md` and is referenced with `notes:`.
+
 ## 0.4.0 · 2026-11-19
 - **One command:** `python3 .agate/agate.py <command>` replaces the separate tools. `start`, `check`, `update`,
   `add`, `remove`, `search`, `list`, `verify`, `doctor`, `sources`, `lang`, `mcp …`, `chats …`, `export …`.

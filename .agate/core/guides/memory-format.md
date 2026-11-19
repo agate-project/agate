@@ -3,10 +3,18 @@
 ## Where
 - `memory/shared/`: the project's memory for the whole team (committed). A profile of someone using the project goes
   here only if really needed (role, how they like to receive information), with nothing sensitive.
-- `memory/local/`: this machine only, not committed (language preference, tested capabilities, private notes).
-- Shared checkout used by several people: keep each person's preferences in `memory/local/people/<name>.md`.
+- `memory/local/`: this machine only, not committed (preferences, tested capabilities, private notes).
+- Shared checkout used by several people: each person's preferences in `memory/local/people/<name>.yml`.
 - Optional daily log: `memory/shared/log/YYYY-MM-DD.md` (what was worked on and decided); move the important parts
   to the index later.
+
+## Preferences (short and structured → YAML)
+Flat `key: value` YAML, written with `agate.py lang set` or by you:
+- `memory/local/preferences.yml` (or `memory/local/people/<name>.yml`): `name`, `language`, `style` (one line, e.g.
+  `prefers being asked before assumptions`), `notes` (path to a longer .md, read only when needed),
+  `preview_identity`, `consent_<thing>: YYYY-MM-DD`.
+- `memory/shared/project.yml`: `default_language` and other short project defaults.
+- Long text goes in a .md referenced by `notes:`. JSON is only for tool state (`state.json`, `chats.json`…).
 
 ## Format
 One file per entry:

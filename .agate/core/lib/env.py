@@ -465,11 +465,11 @@ def cmd_env(a) -> int:
         return 0
     if a.action == "set":
         if not a.names or len(a.names) != 1:
-            raise SystemExit("Usage: agate.py env set NAME")
+            raise SystemExit("Usage: agate.py env set NAME [--stdin]")
         name = a.names[0]
         if not VAR_RE.match(name):
             raise SystemExit(f"'{name}' does not look like a variable name.")
-        value = getpass.getpass(f"{name} (input hidden): ").strip()
+        value = (sys.stdin.readline() if a.stdin else getpass.getpass(f"{name} (input hidden): ")).strip()
         if not value:
             print("Nothing saved (empty input).")
             return 1
@@ -501,5 +501,6 @@ def register(sub, root: Path) -> None:
     p.add_argument("--clear-local", action="store_true", help="remove: also clear the lines in .env")
     p.add_argument("--live", action="store_true", help="check: ask each provider whether the key works")
     p.add_argument("--fingerprint", action="store_true", help="check: show fp:xxxxxx (first 6 hex of SHA-256)")
+    p.add_argument("--stdin", action="store_true", help="set: read the value from stdin (for apps; never echoed)")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_env)

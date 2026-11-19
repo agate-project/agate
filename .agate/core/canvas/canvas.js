@@ -15,10 +15,12 @@
  * A board or note without x/y is laid out automatically inside its section (rows from left to right).
  * Interface language: "lang" in canvas.json, else <html lang>, else the browser language; English by default.
  * To add a language, add an entry to I18N below with the same keys as "en".
- * Serve it with `python3 -m http.server` from the repo root.
+ * Serve it with `python3 .agate/agate.py serve` (comments on) or `python3 -m http.server` (read-only) from the
+ * repo root. Comments: comments.js (same folder) is loaded automatically and uses window.AgateCanvas below.
  */
 (function () {
   "use strict";
+  var SELF = document.currentScript && document.currentScript.src;
 
   var PRESETS = {
     mobile: [390, 844], tablet: [834, 1194], laptop: [1280, 800], desktop: [1440, 900],
@@ -119,6 +121,7 @@
     vp.style.backgroundPosition = S.x + "px " + S.y + "px";
     zoomOut.textContent = Math.round(S.z * 100) + "%";
     drawMini();
+    for (var v = 0; v < API.views.length; v++) { try { API.views[v](); } catch (err) { /* a listener never breaks the view */ } }
   }
   function zoomAt(cx, cy, k) {
     var nz = clamp(S.z * k, MIN_Z, MAX_Z);
@@ -469,6 +472,11 @@
       if (pts.size < 2) pinch = null;
       if (pts.size === 1) { var p = Array.from(pts.values())[0]; drag = { x: p.x - S.x, y: p.y - S.y }; return; }
       // A click without dragging on a board selects it; on the background, it deactivates.
+      if (downAt && moved < 5 && e.type === "pointerup" && API.click) {
+        API.click(e.clientX, e.clientY);
+        drag = null; downAt = null; vp.classList.remove("cv-panning");
+        return;
+      }
       if (downAt && moved < 5 && e.type === "pointerup") {
         var bn = downAt.target.closest && downAt.target.closest(".cv-board");
         if (bn) select(byId[bn.dataset.id]); else { select(null); deactivate(); }
@@ -526,6 +534,47 @@
     focusItem(boards[cursor]);
   }
 
+  // ---------- API for comments.js (and other overlays) ----------
+  // Screen ↔ world coordinates, which board is under a point, a view-change hook and a click hook (comment mode).
+  var API = {
+    views: [], click: null,
+    lang: function () { return LANG; },
+    bar: function () { return document.querySelector(".cv-bar-right"); },
+    toWorld: function (cx, cy) { return { x: (cx - S.x) / S.z, y: (cy - S.y) / S.z }; },
+    toScreen: function (x, y) { return { x: x * S.z + S.x, y: y * S.z + S.y }; },
+    boardAt: function (cx, cy) {
+      var w = API.toWorld(cx, cy);
+      for (var i = items.length - 1; i >= 0; i--) {
+        var it = items[i];
+        if (it.kind !== "board") continue;
+        if (w.x >= it.x && w.x <= it.x + it.w && w.y >= it.y && w.y <= it.y + it.h) {
+          return { id: it.id, rx: (w.x - it.x) / it.w, ry: (w.y - it.y) / it.h, title: it.d.title || it.id };
+        }
+      }
+      return null;
+    },
+    board: function (id) {
+      var it = byId[id];
+      return it && it.kind === "board" ? { x: it.x, y: it.y, w: it.w, h: it.h, title: it.d.title || it.id } : null;
+    },
+    focusBoard: function (id) { var it = byId[id]; if (it) focusItem(it, true); },
+    focusPoint: function (x, y) {
+      S.x = vp.clientWidth / 2 - x * S.z; S.y = vp.clientHeight / 2 - y * S.z; apply();
+    },
+    onView: function (fn) { API.views.push(fn); },
+    setClick: function (fn) { API.click = fn || null; vp.classList.toggle("cv-commenting", !!fn); }
+  };
+  function loadComments() {
+    window.AgateCanvas = API;
+    try { window.dispatchEvent(new Event("agate-canvas-ready")); } catch (err) { /* old browsers */ }
+    if (!SELF || document.querySelector("script[data-agate-comments]")) return;
+    var sc = document.createElement("script");
+    sc.src = SELF.replace(/canvas\.js(\?.*)?$/, "comments.js");
+    sc.defer = true;
+    sc.setAttribute("data-agate-comments", "");
+    document.head.appendChild(sc);
+  }
+
   // ---------- startup ----------
   function start(json) {
     data = json;
@@ -540,6 +589,7 @@
     var first = byId[decodeURIComponent(location.hash.slice(1))] || null;
     if (first) focusItem(first, true); else fitAll();
     lazyLoad();
+    loadComments();
   }
   function fail(msg) {
     document.body.innerHTML = '<div class="cv-error"><b>' + esc(t("errorTitle")) + "</b><p>" + esc(msg) +

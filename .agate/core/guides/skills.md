@@ -28,3 +28,7 @@ python3 .agate/agate.py add pack:<name>           # documents, design, writing, 
 - `python3 .agate/agate.py check` lists updates for every package; `update [name] --yes` applies them.
 - Don't hand-edit library skills (`verify` detects it and `update` would overwrite it). To adapt one, create your own
   skill with another name.
+
+## Keep the list lean
+Every installed skill's description is loaded by the harness in every message. Remove skills nobody uses
+(`python3 .agate/agate.py remove <name>`); `start` warns when the descriptions pass `tokens_skill_descriptions_warn`.

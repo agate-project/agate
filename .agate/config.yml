@@ -11,3 +11,11 @@ tokens_shared_memory_warn: 30000
 tokens_corpus_index: 100000
 tokens_corpus_rag: 300000
 tokens_file_large: 20000
+tokens_skill_descriptions_warn: 1500
+
+# Update checks at the start of a conversation (`git ls-remote` only; never applied without the person's ok).
+# The first conversation of each day always checks; otherwise the next check waits for the current step, and each
+# check without news moves one step further (capped at the last one). News, an update or a version change resets it.
+update_check_schedule: "1h, 2h, 1d"
+# Remind about a pending update at most once every N hours (`agate.py update --snooze 7d` silences it for a while).
+update_notice_hours: 24

@@ -1,7 +1,7 @@
 # Context budget: how big is this project for the model
 
 The tool is `python3 .agate/agate.py tokens`. `agate.py start` already runs a quick offline check once a week and
-prints one line only when a threshold is crossed.
+prints one line only when a threshold is crossed (installed skill descriptions included).
 
 ## Read the numbers
 `python3 .agate/agate.py tokens [paths…] [--provider claude|gemini|openai|all] [--exact] [--json]`
@@ -25,5 +25,6 @@ Thresholds live in `.agate/config.yml` (`tokens_*`); the project may change them
 | Corpus > `tokens_corpus_index` | Add a search index over documents/ (a skill from the library) |
 | Corpus > `tokens_corpus_rag` | RAG / semantic search; keep only summaries in reach |
 | A file > `tokens_file_large` | Summarize it into a shorter document, or split it by topic |
+| Skill descriptions > `tokens_skill_descriptions_warn` | Remove skills nobody uses (`agate.py remove <name>`); every installed skill's description is loaded in every message |
 
 The `context-meter` app from the hub shows the same numbers visually and over time, if the person wants it.

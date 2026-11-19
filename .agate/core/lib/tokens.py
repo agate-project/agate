@@ -41,6 +41,7 @@ DEFAULTS = {
     "tokens_corpus_index": 100000,
     "tokens_corpus_rag": 300000,
     "tokens_file_large": 20000,
+    "tokens_skill_descriptions_warn": 1500,
 }
 ERRORS = {"skipped": []}
 
@@ -78,14 +79,19 @@ def files_under(root: Path, rel: str) -> list[Path]:
                                                                          p.relative_to(root).parts))
 
 
-def skill_descriptions(root: Path) -> str:
-    parts = []
+def skill_frontmatters(root: Path) -> list[tuple[str, str]]:
+    """(skill name, frontmatter) of every installed skill: what harnesses load into every message."""
+    out = []
     for skill in sorted((root / ".agents/skills").glob("*/SKILL.md")):
-        text = skill.read_text(encoding="utf-8")
+        text = skill.read_text(encoding="utf-8", errors="replace")
         m = re.match(r"^---\n(.*?)\n---", text, re.S)
         if m:
-            parts.append(m.group(1))
-    return "\n".join(parts)
+            out.append((skill.parent.name, m.group(1)))
+    return out
+
+
+def skill_descriptions(root: Path) -> str:
+    return "\n".join(fm for _, fm in skill_frontmatters(root))
 
 
 def collect(root: Path, paths: list[str] | None = None) -> dict[str, list[tuple[str, str]]]:
@@ -250,6 +256,11 @@ def measure(root: Path, groups: dict, providers: list[str], exact: bool) -> dict
     for prov, (got, est) in exact_done.items():
         if est > 0 and got > 0:
             save_calibration(root, prov, got / est)
+    skills = skill_frontmatters(root)
+    if skills and "always_loaded" in groups:
+        raw = estimate("\n".join(fm for _, fm in skills))
+        factor = calib.get("claude", {}).get("factor") or 1
+        report["skill_descriptions"] = {"skills": len(skills), "tokens": int(round(raw * factor))}
     report["files"].sort(key=lambda f: f["tokens"], reverse=True)
     report["files"] = [f for f in report["files"] if f["path"] != "skill descriptions"][:10]
     report["notes"] += ERRORS["skipped"]
@@ -296,6 +307,11 @@ def recommendations(root: Path, report: dict, include_index: bool = True) -> lis
             recs.append(f"corpus ≈{c:,} tokens (> {th['tokens_corpus_rag']:,}): consider RAG / semantic search")
         elif c > th["tokens_corpus_index"]:
             recs.append(f"corpus ≈{c:,} tokens (> {th['tokens_corpus_index']:,}): consider a search index")
+    sd = report.get("skill_descriptions")
+    if sd and sd["tokens"] > th["tokens_skill_descriptions_warn"]:
+        recs.append(f"skill descriptions ≈{sd['tokens']:,} tokens across {sd['skills']} skills "
+                    f"(> {th['tokens_skill_descriptions_warn']:,}): remove the ones not used "
+                    "(`python3 .agate/agate.py remove <name>`)")
     big = [f for f in report["files"] if f["tokens"] > th["tokens_file_large"]]
     if big:
         names = ", ".join(f"{f['path']} (≈{f['tokens']:,})" for f in big[:3])
@@ -364,6 +380,16 @@ LABELS = {"always_loaded": "always loaded", "shared_memory": "shared memory", "c
           "artifacts)", "paths": "selected paths"}
 
 
+def format_rows(rows: dict) -> str:
+    """One cell per provider; a single row when every provider is the same uncalibrated estimate."""
+    values = {r["tokens"] for r in rows.values()}
+    if len(rows) > 1 and len(values) == 1 and all(r["source"].startswith("estimate") for r in rows.values()):
+        r = next(iter(rows.values()))
+        return f"≈{r['tokens']:,} (estimate (all models), ±15%)"
+    return " · ".join(f"{p} {('≈' if r['source'] != 'exact' else '')}{r['tokens']:,} ({r['source']})"
+                      for p, r in rows.items())
+
+
 def cmd_tokens(a) -> int:
     root = Path(a.root).resolve()
     providers = list(PROVIDERS) if a.provider == "all" else [a.provider]
@@ -373,9 +399,10 @@ def cmd_tokens(a) -> int:
         print(json.dumps(report, ensure_ascii=False, indent=2))
         return 0
     for group, rows in report["groups"].items():
-        cells = " · ".join(f"{p} {('≈' if r['source'] != 'exact' else '')}{r['tokens']:,} ({r['source']})"
-                           for p, r in rows.items())
-        print(f"{LABELS.get(group, group)}: {cells}")
+        print(f"{LABELS.get(group, group)}: {format_rows(rows)}")
+        if group == "always_loaded" and report.get("skill_descriptions"):
+            sd = report["skill_descriptions"]
+            print(f"  of which skill descriptions: ≈{sd['tokens']:,} ({sd['skills']} skills)")
     if report["files"]:
         print("heaviest files: " + ", ".join(f"{f['path']} ≈{f['tokens']:,}" for f in report["files"][:5]))
     for note in report["notes"]:
